@@ -1,0 +1,40 @@
+[package]
+name = "boi"
+version = "0.1.0"
+description = "Manage backups with Borg"
+repository = "https://github.com/featherbread/boi"
+authors = ["Alex Hamlin <alex@alexhamlin.co>"]
+edition = "2024"
+
+[features]
+default = ["upload"]
+upload = ["dep:url"]
+
+[dependencies]
+clap_complete = "4"
+libc = "0.2"
+url = { version = "2", optional = true }
+
+[dependencies.clap]
+version = "4"
+default-features = false
+features = [
+    "std",
+    "cargo",
+    "derive",
+    "help",
+    "usage",
+]
+
+[dependencies.tokio]
+version = "1"
+features = [
+    "fs",
+    "io-std",
+    "io-util",
+    "macros",
+    "process",
+    "rt",
+    "signal",
+    "time",
+]
