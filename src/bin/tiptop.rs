@@ -4,80 +4,150 @@ use std::error::Error;
 use std::fmt::{self, Display};
 use std::fs::File;
 use std::io::BufReader;
-use std::mem;
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use indicatif::style::ProgressTracker;
 use indicatif::{HumanBytes, ProgressBar, ProgressState, ProgressStyle};
+use serde::de::IgnoredAny;
 use serde_derive::Deserialize;
 use serde_json::{json, Map as JsonMap, Value as JsonValue};
+
+#[path = "../macros.rs"]
+#[macro_use]
+#[allow(unused_macros)]
+mod macros;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let transcript_path = env::args_os().nth(1).ok_or("no path provided")?;
     let transcript = File::open(transcript_path)?;
 
-    let last_progress = Arc::new(RwLock::new(ArchiveProgress::default()));
+    let last_stats = Arc::new(RwLock::new(ArchiveStats::default()));
     let bar = ProgressBar::new_spinner();
-    bar.set_style(ArchiveProgress::bar_style(&last_progress));
+    bar.set_style(ArchiveStats::bar_style(&last_stats));
     bar.enable_steady_tick(Duration::from_millis(100));
 
+    let mut warned_once = false;
+    let mut warn_once = |msg: &str| {
+        if !warned_once {
+            bar.suspend(|| speak!("{msg}"));
+        }
+        warned_once = true;
+    };
+
+    let mut final_stats = None;
     let de = serde_json::Deserializer::from_reader(BufReader::new(transcript));
-    for raw_log in de.into_iter::<RawBorgLog>() {
-        let event = BorgEvent::from(raw_log?);
-        let bar_message = match event {
-            BorgEvent::Unknown => Cow::Borrowed("Doing some stuff..."),
-            BorgEvent::ArchiveFinished => Cow::Borrowed("Finished archiving files."),
-            BorgEvent::ProgressMessage(msg) => Cow::Owned(msg),
-            BorgEvent::ArchiveProgress(mut progress) => {
-                let path = mem::take(&mut progress.path);
-                *last_progress.write().unwrap() = progress;
-                Cow::Owned(path)
+    for raw_log in de.into_iter::<BorgJson>() {
+        let raw_event = match raw_log {
+            Ok(BorgJson::CreateEvent(raw_event)) => raw_event,
+            Ok(BorgJson::FinalStats(stats)) => {
+                final_stats = Some(stats);
+                continue;
+            }
+            Ok(BorgJson::Unknown(_)) => {
+                warn_once("Unrecognized log entry from Borg");
+                continue;
+            }
+            Err(err) => {
+                warn_once(&format!(
+                    "Ignoring further Borg output due to JSON error: {err}"
+                ));
+                break;
             }
         };
-        if !bar_message.is_empty() {
-            bar.set_message(bar_message);
-        }
+
+        let bar_message = match CreateEvent::from(raw_event) {
+            CreateEvent::ProgressMessage(msg) if msg.is_empty() => continue,
+            CreateEvent::ProgressMessage(msg) => Cow::Owned(msg),
+            CreateEvent::ArchiveFinished => Cow::Borrowed("Finished archiving files"),
+            CreateEvent::ArchiveProgress(progress) => {
+                *last_stats.write().unwrap() = progress.stats;
+                Cow::Owned(progress.path)
+            }
+            CreateEvent::UnknownType(msg_type) => {
+                warn_once(&format!("Unrecognized {msg_type} event from Borg"));
+                continue;
+            }
+        };
+
+        bar.set_message(bar_message);
         thread::sleep(Duration::from_millis(150));
+    }
+
+    let mut duration = None;
+    if let Some(stats) = final_stats {
+        duration = Some(stats.archive.duration);
+        *last_stats.write().unwrap() = stats.archive.stats;
+    }
+
+    bar.set_message("Waiting for Borg to exit.");
+    thread::sleep(Duration::from_secs(2));
+
+    // NOTE: Providing just one tick string introduces a panic risk.
+    bar.set_style(ArchiveStats::bar_style(&last_stats).tick_strings(&["✓", "✓"]));
+    if let Some(duration) = duration {
+        bar.finish_with_message(format!("Finished creating archive in {duration} seconds.",));
+    } else {
+        bar.finish_with_message("Finished creating archive.");
     }
 
     Ok(())
 }
 
-#[derive(Default, Deserialize)]
-#[serde(default)] // TODO: Better handling of missing "type" field.
-struct RawBorgLog {
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum BorgJson {
+    CreateEvent(CreateJson),
+    FinalStats(StatsJson),
+    Unknown(IgnoredAny),
+}
+
+#[derive(Deserialize)]
+struct StatsJson {
+    archive: StatsArchiveJson,
+}
+
+#[derive(Deserialize)]
+struct StatsArchiveJson {
+    duration: f64,
+    stats: ArchiveStats,
+}
+
+#[derive(Deserialize)]
+struct CreateJson {
     #[serde(rename = "type")]
     msg_type: String,
     #[serde(flatten)]
     rest: JsonMap<String, JsonValue>,
 }
 
-enum BorgEvent {
+enum CreateEvent {
     ArchiveProgress(ArchiveProgress),
     ArchiveFinished,
     ProgressMessage(String),
-    Unknown,
+    UnknownType(String),
 }
 
-impl From<RawBorgLog> for BorgEvent {
-    fn from(raw: RawBorgLog) -> Self {
+impl From<CreateJson> for CreateEvent {
+    fn from(raw: CreateJson) -> Self {
         match raw.msg_type.as_str() {
             "archive_progress" if raw.rest.get("finished") == Some(&json!(true)) => {
-                BorgEvent::ArchiveFinished
+                CreateEvent::ArchiveFinished
             }
-            "archive_progress" => BorgEvent::ArchiveProgress(
-                serde_json::from_value(JsonValue::Object(raw.rest)).unwrap(),
-            ),
-            "progress_message" => BorgEvent::ProgressMessage(
+            "archive_progress" => {
+                serde_json::from_value::<ArchiveProgress>(JsonValue::Object(raw.rest))
+                    .map(CreateEvent::ArchiveProgress)
+                    .unwrap_or(CreateEvent::UnknownType(raw.msg_type))
+            }
+            "progress_message" => CreateEvent::ProgressMessage(
                 raw.rest
                     .get("message")
                     .and_then(|v| v.as_str())
                     .unwrap_or_default()
                     .to_owned(),
             ),
-            _ => BorgEvent::Unknown,
+            _ => CreateEvent::UnknownType(raw.msg_type),
         }
     }
 }
@@ -85,32 +155,39 @@ impl From<RawBorgLog> for BorgEvent {
 #[derive(Default, Deserialize)]
 #[serde(default)]
 struct ArchiveProgress {
+    path: String,
+    #[serde(flatten)]
+    stats: ArchiveStats,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct ArchiveStats {
     nfiles: u64,
     original_size: u64,
     compressed_size: u64,
     deduplicated_size: u64,
-    path: String,
 }
 
-impl ArchiveProgress {
-    fn bar_style(progress: &Arc<RwLock<ArchiveProgress>>) -> ProgressStyle {
+impl ArchiveStats {
+    fn bar_style(stats: &Arc<RwLock<ArchiveStats>>) -> ProgressStyle {
         ProgressStyle::with_template("{spinner} {nfiles} N {orig} S {comp} C {ddup} D • {wide_msg}")
             .expect("hardcoded ProgressStyle template should be valid")
             .with_key(
                 "nfiles",
-                ArchiveProgressTracker(Arc::clone(progress), ArchiveProgress::bar_nfiles),
+                ArchiveStatsTracker(Arc::clone(stats), ArchiveStats::bar_nfiles),
             )
             .with_key(
                 "orig",
-                ArchiveProgressTracker(Arc::clone(progress), ArchiveProgress::bar_orig),
+                ArchiveStatsTracker(Arc::clone(stats), ArchiveStats::bar_orig),
             )
             .with_key(
                 "comp",
-                ArchiveProgressTracker(Arc::clone(progress), ArchiveProgress::bar_comp),
+                ArchiveStatsTracker(Arc::clone(stats), ArchiveStats::bar_comp),
             )
             .with_key(
                 "ddup",
-                ArchiveProgressTracker(Arc::clone(progress), ArchiveProgress::bar_ddup),
+                ArchiveStatsTracker(Arc::clone(stats), ArchiveStats::bar_ddup),
             )
     }
 
@@ -132,11 +209,11 @@ impl ArchiveProgress {
 }
 
 #[derive(Clone)]
-struct ArchiveProgressTracker<F>(Arc<RwLock<ArchiveProgress>>, F);
+struct ArchiveStatsTracker<F>(Arc<RwLock<ArchiveStats>>, F);
 
-impl<F, T> ProgressTracker for ArchiveProgressTracker<F>
+impl<F, T> ProgressTracker for ArchiveStatsTracker<F>
 where
-    F: Fn(&ArchiveProgress) -> T + Clone + Send + Sync + 'static,
+    F: Fn(&ArchiveStats) -> T + Clone + Send + Sync + 'static,
     T: Display,
 {
     fn clone_box(&self) -> Box<dyn ProgressTracker> {
