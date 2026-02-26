@@ -2,26 +2,27 @@ use std::borrow::Cow;
 use std::env;
 use std::error::Error;
 use std::fmt::{self, Display};
-use std::fs::File;
-use std::io::BufReader;
-use std::sync::{Arc, RwLock};
-use std::thread;
+use std::sync::{mpsc, Arc, RwLock};
 use std::time::{Duration, Instant};
 
 use indicatif::style::ProgressTracker;
 use indicatif::{HumanBytes, ProgressBar, ProgressState, ProgressStyle};
 use serde::de::IgnoredAny;
 use serde_derive::Deserialize;
-use serde_json::{json, Map as JsonMap, Value as JsonValue};
+use serde_json::{json, Error as JsonError, Map as JsonMap, Value as JsonValue};
+use tokio::fs::File;
+use tokio::io::AsyncRead;
+use tokio_util::io::SyncIoBridge;
 
 #[path = "../macros.rs"]
 #[macro_use]
 #[allow(unused_macros)]
 mod macros;
 
-fn main() -> Result<(), Box<dyn Error>> {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn Error>> {
     let transcript_path = env::args_os().nth(1).ok_or("no path provided")?;
-    let transcript = File::open(transcript_path)?;
+    let transcript = File::open(transcript_path).await?;
 
     let last_stats = Arc::new(RwLock::new(ArchiveStats::default()));
     let bar = ProgressBar::new_spinner();
@@ -37,8 +38,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
 
     let mut final_stats = None;
-    let de = serde_json::Deserializer::from_reader(BufReader::new(transcript));
-    for raw_log in de.into_iter::<BorgJson>() {
+    for raw_log in BorgJsonReader::new(transcript) {
         let raw_event = match raw_log {
             Ok(BorgJson::CreateEvent(raw_event)) => raw_event,
             Ok(BorgJson::FinalStats(stats)) => {
@@ -72,7 +72,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         };
 
         bar.set_message(bar_message);
-        thread::sleep(Duration::from_millis(150));
+        tokio::time::sleep(Duration::from_millis(150)).await;
     }
 
     let mut duration = None;
@@ -82,7 +82,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     bar.set_message("Waiting for Borg to exit.");
-    thread::sleep(Duration::from_secs(2));
+    tokio::time::sleep(Duration::from_secs(2)).await;
 
     // NOTE: Providing just one tick string introduces a panic risk.
     bar.set_style(ArchiveStats::bar_style(&last_stats).tick_strings(&["✓", "✓"]));
@@ -227,5 +227,49 @@ where
     fn write(&self, _: &ProgressState, w: &mut dyn fmt::Write) {
         let stat = self.1(&self.0.read().unwrap());
         let _ = write!(w, "{}", stat);
+    }
+}
+
+/// Synchronously iterate over Borg JSON events piped from an [`AsyncRead`].
+///
+/// This is a synchronous iterator because:
+///
+/// 1. boi's main logic is required to be single-threaded. We only use Tokio's I/O abstractions for
+///    convenience (e.g. to wrap them more easily in timeouts) and don't need to care about
+///    blocking the event loop.
+///
+/// 2. We can't buffer all the raw JSON into memory, since it's used to update a live progress bar
+///    while Borg is running.
+///
+/// 3. We can't iterate over lines, since Borg isn't guaranteed to emit one JSON object per line.
+///    In particular, current Borg versions pretty-format the final stats object, so a line-based
+///    iterator would choke on it.
+struct BorgJsonReader(mpsc::Receiver<Result<BorgJson, JsonError>>);
+
+impl BorgJsonReader {
+    fn new<R>(reader: R) -> Self
+    where
+        R: AsyncRead + Unpin + Send + 'static,
+    {
+        let (tx, rx) = mpsc::sync_channel(0);
+        let sync_reader = SyncIoBridge::new(reader);
+        tokio::task::spawn_blocking(move || {
+            let de = serde_json::Deserializer::from_reader(sync_reader);
+            for raw_log in de.into_iter::<BorgJson>() {
+                let send_result = tx.send(raw_log);
+                if send_result.is_err() {
+                    break;
+                }
+            }
+        });
+        Self(rx)
+    }
+}
+
+impl Iterator for BorgJsonReader {
+    type Item = Result<BorgJson, JsonError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.recv().ok()
     }
 }
