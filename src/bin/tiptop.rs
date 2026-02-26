@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::env;
 use std::error::Error;
 use std::fmt::{self, Display};
+use std::process::Stdio;
 use std::sync::{mpsc, Arc, RwLock};
 use std::time::{Duration, Instant};
 
@@ -10,8 +11,9 @@ use indicatif::{HumanBytes, ProgressBar, ProgressState, ProgressStyle};
 use serde::de::IgnoredAny;
 use serde_derive::Deserialize;
 use serde_json::{json, Error as JsonError, Map as JsonMap, Value as JsonValue};
-use tokio::fs::File;
 use tokio::io::AsyncRead;
+use tokio::process::Command;
+use tokio::sync::oneshot;
 use tokio_util::io::SyncIoBridge;
 
 #[path = "../macros.rs"]
@@ -22,7 +24,23 @@ mod macros;
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn Error>> {
     let transcript_path = env::args_os().nth(1).ok_or("no path provided")?;
-    let transcript = File::open(transcript_path).await?;
+    let mut child = Command::new("awk")
+        .arg(
+            r#"
+        BEGIN              { interval = 1.0; }
+        /^\{$/             { interval = 0.0; system("sleep 1.0"); }
+        /progress_message/ { interval = 0.85; }
+        /archive_progress/ { interval = 0.15; }
+                           { print $0; if (interval) system("sleep " interval); }
+            "#,
+        )
+        .arg(transcript_path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()?;
+
+    let child_stdout = child.stdout.take().ok_or("child has no stdout")?;
 
     let last_stats = Arc::new(RwLock::new(ArchiveStats::default()));
     let bar = ProgressBar::new_spinner();
@@ -38,7 +56,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
 
     let mut final_stats = None;
-    for raw_log in BorgJsonReader::new(transcript) {
+    let mut borg_reader = BorgJsonReader::new(child_stdout);
+    while let Some(raw_log) = borg_reader.next().await {
         let raw_event = match raw_log {
             Ok(BorgJson::CreateEvent(raw_event)) => raw_event,
             Ok(BorgJson::FinalStats(stats)) => {
@@ -72,7 +91,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         };
 
         bar.set_message(bar_message);
-        tokio::time::sleep(Duration::from_millis(150)).await;
     }
 
     let mut duration = None;
@@ -81,15 +99,36 @@ async fn main() -> Result<(), Box<dyn Error>> {
         *last_stats.write().unwrap() = stats.archive.stats;
     }
 
-    bar.set_message("Waiting for Borg to exit.");
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    let child_result = match tokio::time::timeout(Duration::from_millis(500), child.wait()).await {
+        Ok(result) => result,
+        Err(_timeout) => {
+            bar.set_message("Waiting for Borg to exit");
+            child.wait().await
+        }
+    };
 
-    // NOTE: Providing just one tick string introduces a panic risk.
-    bar.set_style(ArchiveStats::bar_style(&last_stats).tick_strings(&["✓", "✓"]));
-    if let Some(duration) = duration {
-        bar.finish_with_message(format!("Finished creating archive in {duration} seconds.",));
-    } else {
-        bar.finish_with_message("Finished creating archive.");
+    match child_result {
+        Ok(status) if status.success() => {
+            // NOTE: Providing just one tick string introduces a panic risk.
+            bar.set_style(ArchiveStats::bar_style(&last_stats).tick_strings(&["✓", "✓"]));
+            if let Some(duration) = duration {
+                bar.finish_with_message(format!("Created archive in {duration} seconds"));
+            } else {
+                bar.finish_with_message("Created archive");
+            }
+        }
+        Ok(status) => {
+            bar.set_style(ArchiveStats::bar_style(&last_stats).tick_strings(&["✗", "✗"]));
+            if let Some(code) = status.code() {
+                bar.finish_with_message(format!("Borg exited with code {code}"));
+            } else {
+                bar.finish_with_message(format!("Borg terminated abnormally: {status}"));
+            }
+        }
+        Err(err) => {
+            bar.set_style(ArchiveStats::bar_style(&last_stats).tick_strings(&["✗", "✗"]));
+            bar.finish_with_message(format!("Failed to wait for Borg: {err}"));
+        }
     }
 
     Ok(())
@@ -230,46 +269,49 @@ where
     }
 }
 
-/// Synchronously iterate over Borg JSON events piped from an [`AsyncRead`].
+/// Iterates over Borg JSON events piped from an [`AsyncRead`].
 ///
-/// This is a synchronous iterator because:
+/// This synchronously parses the JSON events in another thread via [`SyncIoBridge`].
+/// Why can't we use a pure async solution?
 ///
-/// 1. boi's main logic is required to be single-threaded. We only use Tokio's I/O abstractions for
-///    convenience (e.g. to wrap them more easily in timeouts) and don't need to care about
-///    blocking the event loop.
+/// 1. We can't buffer all the raw JSON into memory (as the `SyncIoBridge` docs suggest),
+///    since it's used to update a live progress bar while Borg is running.
 ///
-/// 2. We can't buffer all the raw JSON into memory, since it's used to update a live progress bar
-///    while Borg is running.
-///
-/// 3. We can't iterate over lines, since Borg isn't guaranteed to emit one JSON object per line.
+/// 2. We can't iterate over lines, since Borg isn't guaranteed to emit one JSON object per line.
 ///    In particular, current Borg versions pretty-format the final stats object, so a line-based
 ///    iterator would choke on it.
-struct BorgJsonReader(mpsc::Receiver<Result<BorgJson, JsonError>>);
+struct BorgJsonReader(mpsc::Sender<oneshot::Sender<Result<BorgJson, JsonError>>>);
 
 impl BorgJsonReader {
     fn new<R>(reader: R) -> Self
     where
         R: AsyncRead + Unpin + Send + 'static,
     {
-        let (tx, rx) = mpsc::sync_channel(0);
         let sync_reader = SyncIoBridge::new(reader);
+        let (replies_tx, replies_rx) =
+            mpsc::channel::<oneshot::Sender<Result<BorgJson, JsonError>>>();
+
         tokio::task::spawn_blocking(move || {
             let de = serde_json::Deserializer::from_reader(sync_reader);
-            for raw_log in de.into_iter::<BorgJson>() {
-                let send_result = tx.send(raw_log);
-                if send_result.is_err() {
-                    break;
-                }
+            let mut raw_logs = de.into_iter::<BorgJson>();
+            while let (Ok(tx), Some(raw_log)) = (replies_rx.recv(), raw_logs.next()) {
+                let _ = tx.send(raw_log);
             }
         });
-        Self(rx)
+
+        Self(replies_tx)
     }
-}
 
-impl Iterator for BorgJsonReader {
-    type Item = Result<BorgJson, JsonError>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.0.recv().ok()
+    /// Receive the next JSON event from Borg.
+    ///
+    /// # Cancel safety
+    ///
+    /// This method is not cancellation safe.
+    async fn next(&mut self) -> Option<Result<BorgJson, JsonError>> {
+        let (tx, rx) = oneshot::channel();
+        match self.0.send(tx) {
+            Ok(()) => rx.await.ok(),
+            Err(_) => None,
+        }
     }
 }
