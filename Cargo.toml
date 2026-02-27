@@ -5,7 +5,6 @@ description = "Manage backups with Borg"
 repository = "https://github.com/featherbread/boi"
 authors = ["Alex Hamlin <alex@alexhamlin.co>"]
 edition = "2024"
-default-run = "boi"
 
 [features]
 default = ["upload"]
@@ -56,9 +55,3 @@ features = [
     "io",
     "io-util",
 ]
-
-[[bin]]
-name = "boi"
-
-[[bin]]
-name = "tiptop"

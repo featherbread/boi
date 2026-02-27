@@ -1,9 +1,11 @@
 use std::ffi::OsStr;
 use std::fmt::{self, Display};
 use std::io;
+use std::os::fd::OwnedFd;
 use std::process::{ExitStatus, Output, Stdio};
 use std::time::Duration;
 
+use tokio::process::ChildStdout;
 mod foreground;
 
 /// A result type for execution of a [`Child`].
@@ -70,7 +72,31 @@ impl Child {
 
         // SAFETY: This call is unsafe for concurrent use. As of writing, this entire program does
         // all work in a single async task on a single-threaded runtime.
-        wait_result(unsafe { foreground::complete(self.0).await })
+        Self::wait_result(unsafe { foreground::complete(self.0).await })
+    }
+
+    /// Spawns the child and provides [`AsyncRead`] access to its combined standard streams.
+    ///
+    /// Unlike [`complete`](Self::complete), nothing special is done with the terminal or signal
+    /// handling.
+    pub fn spawn_with_output(mut self) -> Result<Spawn> {
+        speak!("{self}");
+
+        let (output, stdout_in) = std::io::pipe().map_err(Error::Launch)?;
+        let stderr_in = stdout_in.try_clone().map_err(Error::Launch)?;
+
+        let output = OwnedFd::from(output);
+        let output = std::process::ChildStdout::from(output);
+        let output = ChildStdout::from_std(output).map_err(Error::Launch)?;
+
+        let mut child = self
+            .0
+            .stdout(stdout_in)
+            .stderr(stderr_in)
+            .spawn()
+            .map_err(Error::Launch)?;
+
+        Ok(Spawn { child, output })
     }
 
     /// Spawns the child and waits up to `duration` for it to exit before leaking and ignoring it.
@@ -87,7 +113,7 @@ impl Child {
         let mut child = self.0.spawn().map_err(Error::Launch)?;
         match tokio::time::timeout(duration, child.wait()).await {
             Err(_timeout) => Ok(()),
-            Ok(wait) => wait_result(wait),
+            Ok(wait) => Self::wait_result(wait),
         }
     }
 
@@ -100,6 +126,17 @@ impl Child {
         speak!("{self}");
         self.0.output().await.map_err(Error::Launch)
     }
+
+    fn wait_result(result: std::result::Result<ExitStatus, io::Error>) -> Result<()> {
+        match result {
+            Err(err) => Err(Error::Launch(err)),
+            Ok(exit) if exit.success() => Ok(()),
+            Ok(exit) => match exit.code() {
+                Some(code) => Err(Error::ExitCode(code)),
+                None => Err(Error::Killed),
+            },
+        }
+    }
 }
 
 impl Display for Child {
@@ -111,15 +148,10 @@ impl Display for Child {
     }
 }
 
-fn wait_result(result: std::result::Result<ExitStatus, io::Error>) -> Result<()> {
-    match result {
-        Err(err) => Err(Error::Launch(err)),
-        Ok(exit) if exit.success() => Ok(()),
-        Ok(exit) => match exit.code() {
-            Some(code) => Err(Error::ExitCode(code)),
-            None => Err(Error::Killed),
-        },
-    }
+/// A child process started by [`Child::spawn_with_output`] that includes a readable output stream.
+pub struct Spawn {
+    pub child: tokio::process::Child,
+    pub output: ChildStdout,
 }
 
 /// An error while executing a [`Child`].

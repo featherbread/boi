@@ -1,8 +1,5 @@
 use std::borrow::Cow;
-use std::env;
-use std::error::Error;
 use std::fmt::{self, Display};
-use std::process::Stdio;
 use std::sync::{mpsc, Arc, RwLock};
 use std::time::{Duration, Instant};
 
@@ -12,40 +9,17 @@ use serde::de::IgnoredAny;
 use serde_derive::Deserialize;
 use serde_json::{json, Error as JsonError, Map as JsonMap, Value as JsonValue};
 use tokio::io::AsyncRead;
-use tokio::process::Command;
 use tokio::sync::oneshot;
 use tokio_util::io::SyncIoBridge;
 
-#[path = "../macros.rs"]
-#[macro_use]
-#[allow(unused_macros)]
-mod macros;
+use crate::child::Spawn;
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Box<dyn Error>> {
-    let transcript_path = env::args_os().nth(1).ok_or("no path provided")?;
-    let mut child = Command::new("awk")
-        .arg(
-            r#"
-        BEGIN              { interval = 1.0; }
-        /^\{$/             { interval = 0.0; system("sleep 1.0"); }
-        /progress_message/ { interval = 0.85; }
-        /archive_progress/ { interval = 0.15; }
-                           { print $0; if (interval) system("sleep " interval); }
-            "#,
-        )
-        .arg(transcript_path)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()?;
-
-    let child_stdout = child.stdout.take().ok_or("child has no stdout")?;
-
+pub async fn render(spawn: Spawn) {
     let last_stats = Arc::new(RwLock::new(ArchiveStats::default()));
     let bar = ProgressBar::new_spinner();
     bar.set_style(ArchiveStats::bar_style(&last_stats));
     bar.enable_steady_tick(Duration::from_millis(100));
+    bar.set_message("Waiting for Borg to start");
 
     let mut warned_once = false;
     let mut warn_once = |msg: &str| {
@@ -56,7 +30,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
 
     let mut final_stats = None;
-    let mut borg_reader = BorgJsonReader::new(child_stdout);
+    let mut borg_reader = BorgJsonReader::new(spawn.output);
     while let Some(raw_log) = borg_reader.next().await {
         let raw_event = match raw_log {
             Ok(BorgJson::CreateEvent(raw_event)) => raw_event,
@@ -99,6 +73,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         *last_stats.write().unwrap() = stats.archive.stats;
     }
 
+    let mut child = spawn.child;
     let child_result = match tokio::time::timeout(Duration::from_millis(500), child.wait()).await {
         Ok(result) => result,
         Err(_timeout) => {
@@ -130,8 +105,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
             bar.finish_with_message(format!("Failed to wait for Borg: {err}"));
         }
     }
-
-    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -186,6 +159,7 @@ impl From<CreateJson> for CreateEvent {
                     .unwrap_or_default()
                     .to_owned(),
             ),
+            // TODO: {"type": "log_message", "time": 1772177801.2136462, "message": "Error: Got Ctrl-C / SIGINT.", "levelname": "ERROR", "name": "borg.archiver", "msgid": "Error"}
             _ => CreateEvent::UnknownType(raw.msg_type),
         }
     }
@@ -210,24 +184,26 @@ struct ArchiveStats {
 
 impl ArchiveStats {
     fn bar_style(stats: &Arc<RwLock<ArchiveStats>>) -> ProgressStyle {
-        ProgressStyle::with_template("{spinner} {nfiles} N {orig} S {comp} C {ddup} D • {wide_msg}")
-            .expect("hardcoded ProgressStyle template should be valid")
-            .with_key(
-                "nfiles",
-                ArchiveStatsTracker(Arc::clone(stats), ArchiveStats::bar_nfiles),
-            )
-            .with_key(
-                "orig",
-                ArchiveStatsTracker(Arc::clone(stats), ArchiveStats::bar_orig),
-            )
-            .with_key(
-                "comp",
-                ArchiveStatsTracker(Arc::clone(stats), ArchiveStats::bar_comp),
-            )
-            .with_key(
-                "ddup",
-                ArchiveStatsTracker(Arc::clone(stats), ArchiveStats::bar_ddup),
-            )
+        ProgressStyle::with_template(
+            "[boi] {spinner} {nfiles} N {orig} S {comp} C {ddup} D • {wide_msg}",
+        )
+        .expect("hardcoded ProgressStyle template should be valid")
+        .with_key(
+            "nfiles",
+            ArchiveStatsTracker(Arc::clone(stats), ArchiveStats::bar_nfiles),
+        )
+        .with_key(
+            "orig",
+            ArchiveStatsTracker(Arc::clone(stats), ArchiveStats::bar_orig),
+        )
+        .with_key(
+            "comp",
+            ArchiveStatsTracker(Arc::clone(stats), ArchiveStats::bar_comp),
+        )
+        .with_key(
+            "ddup",
+            ArchiveStatsTracker(Arc::clone(stats), ArchiveStats::bar_ddup),
+        )
     }
 
     fn bar_nfiles(&self) -> u64 {

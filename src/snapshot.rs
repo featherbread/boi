@@ -10,6 +10,8 @@ mod driver_apfs;
 #[cfg(boi_has_driver = "none")]
 mod driver_none;
 
+mod frontend;
+
 #[derive(clap::Args)]
 pub struct Args {
     /// How to snapshot the home directory
@@ -30,24 +32,30 @@ pub async fn main(args: Args) -> child::Result<()> {
         die!("System time is before the UNIX epoch; what are you doing?!?");
     };
 
-    let backup_spec = format!("{repo}::{sec}", sec = ts.as_secs());
-    let cmd = Child::from_cmdline(&[
-        "borg",
-        "create",
-        "--exclude-from=.borg-excludes",
-        "--exclude-caches",
-        "--compression=auto,zstd,19",
-        "--progress",
-        "--stats",
-        &backup_spec,
-        ".",
-    ]);
+    let run = async {
+        let backup_spec = format!("{repo}::{sec}", sec = ts.as_secs());
+        let child = Child::from_cmdline(&[
+            "borg",
+            "create",
+            "--exclude-from=.borg-excludes",
+            "--exclude-caches",
+            "--compression=auto,zstd,19",
+            "--progress",
+            "--log-json",
+            "--json",
+            &backup_spec,
+            ".",
+        ]);
+        frontend::render(child.spawn_with_output()?).await;
+        Ok::<_, child::Error>(())
+        // TODO: Handle signals properly even with Borg in the background.
+    };
 
     let result = match args.driver {
         #[cfg(boi_has_driver = "apfs")]
-        DriverKind::Apfs => driver_apfs::in_backup_root(args.apfs, cmd.complete()).await,
+        DriverKind::Apfs => driver_apfs::in_backup_root(args.apfs, run).await,
         #[cfg(boi_has_driver = "none")]
-        DriverKind::None => driver_none::in_backup_root(cmd.complete()).await,
+        DriverKind::None => driver_none::in_backup_root(run).await,
     };
     if let Err(err) = result {
         die!("Borg did not succeed ({err}); you should look at that.");
