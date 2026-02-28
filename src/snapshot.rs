@@ -46,12 +46,13 @@ pub async fn main(args: Args) -> child::Result<()> {
             &backup_spec,
             ".",
         ]);
-        frontend::render(child.spawn_with_output()?).await;
-        Ok::<_, child::Error>(())
-        // TODO: Handle signals properly even with Borg in the background.
+
+        let (spawn, output) = child.spawn_with_output()?;
+        frontend::render(spawn, output).await;
+        Ok(())
     };
 
-    let result = match args.driver {
+    let result: child::Result<()> = match args.driver {
         #[cfg(boi_has_driver = "apfs")]
         DriverKind::Apfs => driver_apfs::in_backup_root(args.apfs, run).await,
         #[cfg(boi_has_driver = "none")]

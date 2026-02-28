@@ -7,16 +7,16 @@ use clap::{Parser, Subcommand};
 #[macro_use]
 mod macros;
 
-mod check;
 mod child;
+mod signals;
+
+mod check;
 mod completion;
 mod prune;
 mod snapshot;
 #[cfg(feature = "upload")]
 mod upload;
 
-// NOTE: boi relies on parts of POSIX that are unspecified or invalid in multi-threaded programs.
-// Do NOT use any form of multi-threading anywhere in boi.
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     let result = match Cli::parse().command {

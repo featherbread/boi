@@ -13,12 +13,13 @@ use serde::de::IgnoredAny;
 use serde_derive::Deserialize;
 use serde_json::{json, Error as JsonError, Map as JsonMap, Value as JsonValue};
 use tokio::io::AsyncRead;
+use tokio::process::ChildStdout;
 use tokio::sync::oneshot;
 use tokio_util::io::SyncIoBridge;
 
 use crate::child::Spawn;
 
-pub async fn render(spawn: Spawn) {
+pub async fn render(mut spawn: Spawn, output: ChildStdout) {
     let last_stats = Arc::new(RwLock::new(ArchiveStats::default()));
     let bar = ProgressBar::new_spinner();
     bar.set_style(ArchiveStats::bar_style(&last_stats));
@@ -34,7 +35,7 @@ pub async fn render(spawn: Spawn) {
     };
 
     let mut final_stats = None;
-    let mut borg_reader = BorgJsonReader::new(spawn.output);
+    let mut borg_reader = BorgJsonReader::new(output);
     while let Some(raw_log) = borg_reader.next().await {
         let raw_event = match raw_log {
             Ok(BorgJson::CreateEvent(raw_event)) => raw_event,
@@ -62,6 +63,10 @@ pub async fn render(spawn: Spawn) {
                 *last_stats.write().unwrap() = progress.stats;
                 Cow::Owned(progress.path)
             }
+            CreateEvent::LogMessage(msg) => {
+                bar.suspend(|| speak!("⚑ {msg}"));
+                continue;
+            }
             CreateEvent::UnknownType(msg_type) => {
                 warn_once(&format!("Unrecognized {msg_type} event from Borg"));
                 continue;
@@ -77,12 +82,11 @@ pub async fn render(spawn: Spawn) {
         *last_stats.write().unwrap() = stats.archive.stats;
     }
 
-    let mut child = spawn.child;
-    let child_result = match tokio::time::timeout(Duration::from_millis(500), child.wait()).await {
+    let child_result = match tokio::time::timeout(Duration::from_millis(500), spawn.wait()).await {
         Ok(result) => result,
         Err(_timeout) => {
             bar.set_message("Waiting for Borg to exit");
-            child.wait().await
+            spawn.wait().await
         }
     };
 
@@ -142,6 +146,7 @@ enum CreateEvent {
     ArchiveProgress(ArchiveProgress),
     ArchiveFinished,
     ProgressMessage(String),
+    LogMessage(String),
     UnknownType(String),
 }
 
@@ -163,7 +168,13 @@ impl From<CreateJson> for CreateEvent {
                     .unwrap_or_default()
                     .to_owned(),
             ),
-            // TODO: {"type": "log_message", "time": 1772177801.2136462, "message": "Error: Got Ctrl-C / SIGINT.", "levelname": "ERROR", "name": "borg.archiver", "msgid": "Error"}
+            "log_message" => CreateEvent::LogMessage(
+                raw.rest
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_owned(),
+            ),
             _ => CreateEvent::UnknownType(raw.msg_type),
         }
     }
