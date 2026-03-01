@@ -338,7 +338,7 @@ impl Stream for BorgJsonReader {
 /// [`tokio::select`] statements without losing items.
 struct SyncBridge<T> {
     clients_tx: mpsc::Sender<BridgeClient<T>>,
-    next_reply: Option<Pin<Box<oneshot::Receiver<T>>>>,
+    next_reply: Option<oneshot::Receiver<T>>,
 }
 
 impl<T> SyncBridge<T> {
@@ -363,13 +363,13 @@ impl<T> Stream for SyncBridge<T> {
             None => {
                 let (tx, rx) = oneshot::channel();
                 match self.clients_tx.send(BridgeClient(tx)) {
-                    Ok(()) => Box::pin(rx),
+                    Ok(()) => rx,
                     Err(_) => return Poll::Ready(None),
                 }
             }
         };
 
-        if let Poll::Ready(reply) = rx.as_mut().poll(cx) {
+        if let Poll::Ready(reply) = Pin::new(&mut rx).poll(cx) {
             return Poll::Ready(reply.ok());
         }
 
