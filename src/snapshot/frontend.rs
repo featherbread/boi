@@ -56,7 +56,7 @@ pub async fn render(mut spawn: Spawn, output: ChildStdout) {
         };
 
         let bar_message = match CreateEvent::from(raw_event) {
-            CreateEvent::ProgressMessage(msg) if msg.is_empty() => continue,
+            CreateEvent::Blank => continue,
             CreateEvent::ProgressMessage(msg) => Cow::Owned(msg),
             CreateEvent::ArchiveFinished => Cow::Borrowed("Finished archiving files"),
             CreateEvent::ArchiveProgress(progress) => {
@@ -64,12 +64,10 @@ pub async fn render(mut spawn: Spawn, output: ChildStdout) {
                 Cow::Owned(progress.path)
             }
             CreateEvent::LogMessage(msg) => {
-                if !msg.is_empty() {
-                    bar.suspend(|| speak!("⚑", "{msg}"));
-                }
+                bar.suspend(|| speak!("⚑", "{msg}"));
                 continue;
             }
-            CreateEvent::UnknownType(msg_type) => {
+            CreateEvent::Unrecognized(msg_type) => {
                 warn_once(&format!("Unrecognized {msg_type} event from Borg"));
                 continue;
             }
@@ -144,12 +142,23 @@ struct CreateJson {
     rest: JsonMap<String, JsonValue>,
 }
 
+impl CreateJson {
+    fn message(&self) -> Option<String> {
+        self.rest
+            .get("message")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(ToOwned::to_owned)
+    }
+}
+
 enum CreateEvent {
+    Blank,
     ArchiveProgress(ArchiveProgress),
     ArchiveFinished,
     ProgressMessage(String),
     LogMessage(String),
-    UnknownType(String),
+    Unrecognized(String),
 }
 
 impl From<CreateJson> for CreateEvent {
@@ -161,23 +170,19 @@ impl From<CreateJson> for CreateEvent {
             "archive_progress" => {
                 serde_json::from_value::<ArchiveProgress>(JsonValue::Object(raw.rest))
                     .map(CreateEvent::ArchiveProgress)
-                    .unwrap_or(CreateEvent::UnknownType(raw.msg_type))
+                    .unwrap_or(CreateEvent::Unrecognized(raw.msg_type))
             }
-            "progress_message" => CreateEvent::ProgressMessage(
-                raw.rest
-                    .get("message")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or_default()
-                    .to_owned(),
-            ),
-            "log_message" => CreateEvent::LogMessage(
-                raw.rest
-                    .get("message")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or_default()
-                    .to_owned(),
-            ),
-            _ => CreateEvent::UnknownType(raw.msg_type),
+            "progress_message" => raw
+                .message()
+                .map(CreateEvent::ProgressMessage)
+                .unwrap_or(CreateEvent::Blank),
+
+            "log_message" => raw
+                .message()
+                .map(CreateEvent::LogMessage)
+                .unwrap_or(CreateEvent::Blank),
+
+            _ => CreateEvent::Unrecognized(raw.msg_type),
         }
     }
 }
@@ -207,19 +212,19 @@ impl ArchiveStats {
         .expect("hardcoded ProgressStyle template should be valid")
         .with_key(
             "nfiles",
-            ArchiveStatsTracker(Arc::clone(stats), ArchiveStats::bar_nfiles),
+            ArchiveStatsTracker::new(stats, ArchiveStats::bar_nfiles),
         )
         .with_key(
             "orig",
-            ArchiveStatsTracker(Arc::clone(stats), ArchiveStats::bar_orig),
+            ArchiveStatsTracker::new(stats, ArchiveStats::bar_orig),
         )
         .with_key(
             "comp",
-            ArchiveStatsTracker(Arc::clone(stats), ArchiveStats::bar_comp),
+            ArchiveStatsTracker::new(stats, ArchiveStats::bar_comp),
         )
         .with_key(
             "ddup",
-            ArchiveStatsTracker(Arc::clone(stats), ArchiveStats::bar_ddup),
+            ArchiveStatsTracker::new(stats, ArchiveStats::bar_ddup),
         )
     }
 
@@ -241,7 +246,19 @@ impl ArchiveStats {
 }
 
 #[derive(Clone)]
-struct ArchiveStatsTracker<F>(Arc<RwLock<ArchiveStats>>, F);
+struct ArchiveStatsTracker<F> {
+    stats: Arc<RwLock<ArchiveStats>>,
+    render: F,
+}
+
+impl<F> ArchiveStatsTracker<F> {
+    fn new(stats: &Arc<RwLock<ArchiveStats>>, render: F) -> Self {
+        Self {
+            stats: Arc::clone(stats),
+            render,
+        }
+    }
+}
 
 impl<F, T> ProgressTracker for ArchiveStatsTracker<F>
 where
@@ -257,7 +274,7 @@ where
     fn reset(&mut self, _: &ProgressState, _: Instant) {}
 
     fn write(&self, _: &ProgressState, w: &mut dyn fmt::Write) {
-        let stat = self.1(&self.0.read().unwrap());
+        let stat = (self.render)(&self.stats.read().unwrap());
         let _ = write!(w, "{}", stat);
     }
 }
