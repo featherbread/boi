@@ -69,7 +69,7 @@ impl Child {
     /// Until `complete` returns, the parent ignores common termination signals under the
     /// assumption that they're sent to the entire process group.
     pub async fn complete(mut self) -> Result<()> {
-        speak!("{self}");
+        speak!("$", "{self}");
 
         let _signal_guard = signals::ignore();
 
@@ -81,7 +81,7 @@ impl Child {
     /// Until the first call to [`Spawn::wait`] returns, the parent ignores common termination
     /// signals under the assumption that they're sent to the entire process group.
     pub fn spawn_with_output(mut self) -> Result<(Spawn, ChildStdout)> {
-        speak!("{self}");
+        speak!("$", "{self}");
 
         let (output, stdout_in) = std::io::pipe().map_err(Error::Launch)?;
         let stderr_in = stdout_in.try_clone().map_err(Error::Launch)?;
@@ -118,7 +118,7 @@ impl Child {
     /// will not receive keyboard-generated signals even if its output remains connected to a
     /// terminal.
     pub async fn spawn_and_background_after(mut self, duration: Duration) -> Result<()> {
-        speak!("{self} &");
+        speak!("$", "{self} &");
 
         let mut child = self.0.process_group(0).spawn().map_err(Error::Launch)?;
         match tokio::time::timeout(duration, child.wait()).await {
@@ -133,7 +133,7 @@ impl Child {
     /// Nothing special is done with respect to signal handling. This is intended for short-running
     /// children that a user is unlikely to interrupt.
     pub async fn capture_output(mut self) -> Result<Output> {
-        speak!("{self}");
+        speak!("$", "{self}");
         self.0.output().await.map_err(Error::Launch)
     }
 
@@ -152,7 +152,7 @@ impl Child {
 impl Display for Child {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let cmd = self.0.as_std();
-        write!(f, "$ {cmd}", cmd = cmd.get_program().display())?;
+        write!(f, "{cmd}", cmd = cmd.get_program().display())?;
         cmd.get_args()
             .try_for_each(|arg| write!(f, " {arg}", arg = arg.display()))
     }

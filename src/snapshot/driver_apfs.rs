@@ -58,7 +58,7 @@ async fn enter_snapshot(args: Args) -> impl Future<Output = ()> {
         pid = std::process::id()
     ));
 
-    speak!("$ mkdir {dir}", dir = mount_target.display());
+    speak!("$", "mkdir {dir}", dir = mount_target.display());
     if let Err(err) = fs::create_dir_all(&mount_target).await {
         die!("Failed to create mount directory ({err}); I can't mount the snapshot.");
     }
@@ -79,7 +79,7 @@ async fn enter_snapshot(args: Args) -> impl Future<Output = ()> {
     }
 
     let backup_root = mount_target.join(home_sub);
-    speak!("$ cd {dir}", dir = backup_root.display());
+    speak!("$", "cd {dir}", dir = backup_root.display());
     if let Err(err) = env::set_current_dir(backup_root) {
         die!("Can't change to snapshot dir ({err}); I won't be able to back it up.");
     }
@@ -88,7 +88,7 @@ async fn enter_snapshot(args: Args) -> impl Future<Output = ()> {
     // since we don't need to hand-write a struct for the values we care about sharing.
     // Any awkwardness of this approach is internal to this module.
     async move {
-        speak!("$ cd {dir}", dir = home_abs.display());
+        speak!("$", "cd {dir}", dir = home_abs.display());
         if let Err(err) = env::set_current_dir(home_abs) {
             die!("Can't return to $HOME ({err}); I won't be able to unmount the snapshot.");
         }
@@ -102,7 +102,7 @@ async fn enter_snapshot(args: Args) -> impl Future<Output = ()> {
             die!("Failed to unmount snapshot ({err}); you should take a look at that.");
         }
 
-        speak!("$ rmdir {dir}", dir = mount_target.display());
+        speak!("$", "rmdir {dir}", dir = mount_target.display());
         if let Err(err) = fs::remove_dir(mount_target).await {
             die!("Failed to remove mount directory ({err}); you should take a look at that.");
         }

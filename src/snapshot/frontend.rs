@@ -29,7 +29,7 @@ pub async fn render(mut spawn: Spawn, output: ChildStdout) {
     let mut warned_once = false;
     let mut warn_once = |msg: &str| {
         if !warned_once {
-            bar.suspend(|| speak!("{msg}"));
+            bar.suspend(|| speak!("⚑", "{msg}"));
         }
         warned_once = true;
     };
@@ -64,7 +64,9 @@ pub async fn render(mut spawn: Spawn, output: ChildStdout) {
                 Cow::Owned(progress.path)
             }
             CreateEvent::LogMessage(msg) => {
-                bar.suspend(|| speak!("⚑ {msg}"));
+                if !msg.is_empty() {
+                    bar.suspend(|| speak!("⚑", "{msg}"));
+                }
                 continue;
             }
             CreateEvent::UnknownType(msg_type) => {

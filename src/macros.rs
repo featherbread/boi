@@ -2,12 +2,13 @@
 
 /// Prints to standard error with basic log formatting and a newline.
 macro_rules! speak {
-    ($fmt:literal $(, $($args:tt)* )?) => {{
+    ($sigil:literal, $fmt:literal $(, $($args:tt)* )?) => {{
         use ::std::io::Write;
         let _ = writeln!(
             ::std::io::stderr().lock(),
-            "[{}] {}",
+            "[{}] {} {}",
             env!("CARGO_PKG_NAME"),
+            $sigil,
             format_args!($fmt $(, $($args)* )?),
         );
     }};
@@ -16,7 +17,7 @@ macro_rules! speak {
 /// [`speak`]s to standard error, then terminates the current process with an exit code.
 macro_rules! die {
     (code = $code:expr, $fmt:literal $(, $($args:tt)* )?) => {{
-        speak!("{}", format_args!($fmt $(, $($args)* )?));
+        speak!("✗", "{}", format_args!($fmt $(, $($args)* )?));
         ::std::process::exit($code);
     }};
     ($fmt:literal $(, $($args:tt)* )?) => {{

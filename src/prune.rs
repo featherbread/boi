@@ -51,7 +51,7 @@ pub async fn main(args: Args) -> child::Result<()> {
         return Ok(());
     }
 
-    speak!("Press Enter to prune snapshots for real…");
+    speak!("⚠", "Press Enter to prune snapshots for real…");
     let mut stdin = io::BufReader::new(io::stdin());
     let mut line = String::new();
     if let Ok(0) | Err(_) = stdin.read_line(&mut line).await {
@@ -177,13 +177,14 @@ impl DryRun {
 
     async fn dump_to_stderr(&self) {
         let DryRun::PruneSome { stderr, elided } = self else {
-            speak!("No snapshots to prune right now.");
+            speak!("✓", "No snapshots to prune right now.");
             return;
         };
 
         dump_all_stderr(stderr).await;
         if let Some(DryRunElision { interval, count }) = elided {
             speak!(
+                "✱",
                 "Keeping {count} more {interval} {snaps} too.",
                 snaps = if *count == 1 { "snapshot" } else { "snapshots" }
             );
