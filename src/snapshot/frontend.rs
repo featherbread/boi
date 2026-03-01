@@ -1,8 +1,7 @@
 use std::borrow::Cow;
 use std::fmt::{self, Display};
-use std::iter;
 use std::pin::Pin;
-use std::sync::{mpsc, Arc, RwLock};
+use std::sync::{Arc, RwLock};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
@@ -14,7 +13,7 @@ use serde_derive::Deserialize;
 use serde_json::{json, Error as JsonError, Map as JsonMap, Value as JsonValue};
 use tokio::io::AsyncRead;
 use tokio::process::ChildStdout;
-use tokio::sync::oneshot;
+use tokio::sync::mpsc;
 use tokio_util::io::SyncIoBridge;
 
 use crate::child::Spawn;
@@ -290,7 +289,7 @@ where
 /// 2. We can't iterate over lines, since Borg isn't guaranteed to emit one JSON object per line.
 ///    In particular, current Borg versions pretty-format the final stats object, so a line-based
 ///    iterator would choke on it.
-struct BorgJsonReader(SyncBridge<Result<BorgJson, JsonError>>);
+struct BorgJsonReader(mpsc::UnboundedReceiver<Result<BorgJson, JsonError>>);
 
 impl BorgJsonReader {
     fn new<R>(reader: R) -> Self
@@ -298,16 +297,15 @@ impl BorgJsonReader {
         R: AsyncRead + Unpin + Send + 'static,
     {
         let sync_reader = SyncIoBridge::new(reader);
-        let (clients, bridge) = SyncBridge::new();
+        let (tx, rx) = mpsc::unbounded_channel();
 
         tokio::task::spawn_blocking(move || {
-            let de = serde_json::Deserializer::from_reader(sync_reader);
-            for (client, log) in iter::zip(clients, de.into_iter()) {
-                client.send(log);
-            }
+            serde_json::Deserializer::from_reader(sync_reader)
+                .into_iter()
+                .try_for_each(|log| tx.send(log))
         });
 
-        Self(bridge)
+        Self(rx)
     }
 }
 
@@ -315,73 +313,6 @@ impl Stream for BorgJsonReader {
     type Item = Result<BorgJson, JsonError>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.0.poll_next_unpin(cx)
-    }
-}
-
-/// Connects a synchronous producer to an asynchronous consumer.
-///
-/// [`SyncBridge::new`] returns an iterator over _clients_ that are asynchronously awaiting values
-/// from the stream. The synchronous producer can:
-///
-///   - Yield an item to a single client by sending it
-///   - Yield [`None`] to a single client by dropping the client
-///   - End the stream by dropping the iterator
-///
-/// The client iterator is designed to be [zipped](Iterator::zip) with a regular synchronous
-/// iterator, and a typical implementation is to send items to clients for as long as the zipped
-/// iterator yields both.
-///
-/// # Cancel safety
-///
-/// Futures derived from the [`Stream`] are cancel safe. They may be dropped or used freely in
-/// [`tokio::select`] statements without losing items.
-struct SyncBridge<T> {
-    clients_tx: mpsc::Sender<BridgeClient<T>>,
-    next_reply: Option<oneshot::Receiver<T>>,
-}
-
-impl<T> SyncBridge<T> {
-    fn new() -> (impl Iterator<Item = BridgeClient<T>>, Self) {
-        let (clients_tx, clients_rx) = mpsc::channel::<BridgeClient<T>>();
-        (
-            iter::from_fn(move || clients_rx.recv().ok()),
-            Self {
-                clients_tx,
-                next_reply: None,
-            },
-        )
-    }
-}
-
-impl<T> Stream for SyncBridge<T> {
-    type Item = T;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let mut rx = match self.next_reply.take() {
-            Some(rx) => rx,
-            None => {
-                let (tx, rx) = oneshot::channel();
-                match self.clients_tx.send(BridgeClient(tx)) {
-                    Ok(()) => rx,
-                    Err(_) => return Poll::Ready(None),
-                }
-            }
-        };
-
-        if let Poll::Ready(reply) = Pin::new(&mut rx).poll(cx) {
-            return Poll::Ready(reply.ok());
-        }
-
-        self.next_reply = Some(rx);
-        Poll::Pending
-    }
-}
-
-struct BridgeClient<T>(oneshot::Sender<T>);
-
-impl<T> BridgeClient<T> {
-    fn send(self, item: T) {
-        let _ = self.0.send(item);
+        self.0.poll_recv(cx)
     }
 }
