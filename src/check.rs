@@ -1,34 +1,33 @@
 use std::time::Duration;
 
+use futures::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
+use serde::de::IgnoredAny;
+use serde_derive::Deserialize;
+use serde_json::{json, Map as JsonMap, Value as JsonValue};
+use tokio::process::ChildStdout;
 
-use crate::child::{self, Child};
+use crate::child::{self, Child, Spawn};
+use crate::json::JsonStream;
 
 #[derive(clap::Args)]
 pub struct Args {
     /// Only perform repository checks (chunk CRCs)
     #[arg(long)]
     repository_only: bool,
-
-    /// Actually do the check instead of rendering a fake bar (TEMPORARY)
-    #[arg(long)]
-    actually_check: bool,
 }
 
 pub async fn main(args: Args) -> child::Result<()> {
-    render().await;
-    if !args.actually_check {
-        return Ok(());
-    }
-
     let mut cmdline = vec!["borg", "check", "-v", "--progress"];
     if args.repository_only {
         cmdline.push("--repository-only");
     }
-    Child::from_cmdline(&cmdline).complete().await
+    let (spawn, output) = Child::from_cmdline(&cmdline).spawn_with_output()?;
+    render(spawn, output).await;
+    Ok(())
 }
 
-async fn render() {
+async fn render(mut spawn: Spawn, output: ChildStdout) {
     let style = ProgressStyle::with_template("[boi] {spinner} {bar} {pos}/{len} • {wide_msg}")
         .expect("hardcoded ProgressStyle template should be valid");
 
@@ -37,18 +36,136 @@ async fn render() {
     bar.enable_steady_tick(Duration::from_millis(100));
     bar.set_message("Waiting for Borg to start");
 
-    bar.tick();
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    let mut warned_once = false;
+    let mut warn_once = |msg: &str| {
+        if !warned_once {
+            bar.suspend(|| speak!("⚑", "{msg}"));
+        }
+        warned_once = true;
+    };
 
-    bar.set_message("Analyzing the stuff");
-    bar.set_length(41);
-    for _ in 0..41 {
-        tokio::time::sleep(Duration::from_millis(195)).await;
-        bar.inc(1);
+    let mut output_stream = JsonStream::new(output);
+    while let Some(raw_log) = output_stream.next().await {
+        let raw_event = match raw_log {
+            Ok(BorgJson::CheckEvent(raw_event)) => raw_event,
+            Ok(BorgJson::Unknown(_)) => {
+                warn_once("Unrecognized log entry from Borg");
+                continue;
+            }
+            Err(err) => {
+                warn_once(&format!(
+                    "Ignoring further Borg output due to JSON error: {err}"
+                ));
+                break;
+            }
+        };
+
+        let progress = match CheckEvent::from(raw_event) {
+            CheckEvent::Blank => continue,
+            CheckEvent::ProgressPercent(progress) => progress,
+            CheckEvent::ProgressFinished => {
+                warn_once("Finished one thing but cannot monitor others yet");
+                break;
+            }
+            CheckEvent::LogMessage(msg) => {
+                bar.suspend(|| speak!("⚑", "{msg}"));
+                continue;
+            }
+            CheckEvent::Unrecognized(msg_type) => {
+                warn_once(&format!("Unrecognized {msg_type} event from Borg"));
+                continue;
+            }
+        };
+
+        bar.set_length(progress.total);
+        bar.set_position(progress.current);
+        bar.set_message(progress.message);
     }
 
-    bar.finish_and_clear();
-    speak!("✓", "Checked all the stuff");
+    let child_result = match tokio::time::timeout(Duration::from_millis(500), spawn.wait()).await {
+        Ok(result) => result,
+        Err(_timeout) => {
+            bar.set_message("Waiting for Borg to exit");
+            spawn.wait().await
+        }
+    };
 
-    // NOTE: there are multiple phases with different lengths, delineated by the msgid field.
+    bar.finish_and_clear();
+    match child_result {
+        Ok(status) if status.success() => {
+            speak!("✓", "Repository is valid");
+        }
+        Ok(status) => {
+            bar.set_style(style.clone().tick_strings(&["✗", "✗"]));
+            if let Some(code) = status.code() {
+                speak!("✗", "Borg exited with code {code}");
+            } else {
+                speak!("✗", "Borg terminated abnormally: {status}");
+            }
+        }
+        Err(err) => {
+            speak!("✗", "Failed to wait for Borg: {err}");
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum BorgJson {
+    CheckEvent(CheckJson),
+    Unknown(IgnoredAny),
+}
+
+#[derive(Deserialize)]
+struct CheckJson {
+    #[serde(rename = "type")]
+    msg_type: String,
+    #[serde(flatten)]
+    rest: JsonMap<String, JsonValue>,
+}
+
+impl CheckJson {
+    fn message(&self) -> Option<String> {
+        self.rest
+            .get("message")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(ToOwned::to_owned)
+    }
+}
+
+enum CheckEvent {
+    Blank,
+    ProgressPercent(ProgressPercent),
+    ProgressFinished,
+    LogMessage(String),
+    Unrecognized(String),
+}
+
+impl From<CheckJson> for CheckEvent {
+    fn from(raw: CheckJson) -> Self {
+        match raw.msg_type.as_str() {
+            "progress_percent" if raw.rest.get("finished") == Some(&json!(true)) => {
+                CheckEvent::ProgressFinished
+            }
+            "progress_percent" => {
+                serde_json::from_value::<ProgressPercent>(JsonValue::Object(raw.rest))
+                    .map(CheckEvent::ProgressPercent)
+                    .unwrap_or(CheckEvent::Unrecognized(raw.msg_type))
+            }
+            "log_message" => raw
+                .message()
+                .map(CheckEvent::LogMessage)
+                .unwrap_or(CheckEvent::Blank),
+
+            _ => CheckEvent::Unrecognized(raw.msg_type),
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct ProgressPercent {
+    current: u64,
+    total: u64,
+    message: String,
 }
