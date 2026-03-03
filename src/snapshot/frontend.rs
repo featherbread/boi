@@ -1,22 +1,18 @@
 use std::borrow::Cow;
 use std::fmt::{self, Display};
-use std::pin::Pin;
 use std::sync::{Arc, RwLock};
-use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
-use futures::{Stream, StreamExt};
+use futures::StreamExt;
 use indicatif::style::ProgressTracker;
 use indicatif::{HumanBytes, ProgressBar, ProgressState, ProgressStyle};
 use serde::de::IgnoredAny;
 use serde_derive::Deserialize;
-use serde_json::{json, Error as JsonError, Map as JsonMap, Value as JsonValue};
-use tokio::io::AsyncRead;
+use serde_json::{json, Map as JsonMap, Value as JsonValue};
 use tokio::process::ChildStdout;
-use tokio::sync::mpsc;
-use tokio_util::io::SyncIoBridge;
 
 use crate::child::Spawn;
+use crate::json::JsonStream;
 
 pub async fn render(mut spawn: Spawn, output: ChildStdout) {
     let last_stats = Arc::new(RwLock::new(ArchiveStats::default()));
@@ -34,8 +30,8 @@ pub async fn render(mut spawn: Spawn, output: ChildStdout) {
     };
 
     let mut final_stats = None;
-    let mut borg_reader = BorgJsonReader::new(output);
-    while let Some(raw_log) = borg_reader.next().await {
+    let mut output_stream = JsonStream::new(output);
+    while let Some(raw_log) = output_stream.next().await {
         let raw_event = match raw_log {
             Ok(BorgJson::CreateEvent(raw_event)) => raw_event,
             Ok(BorgJson::FinalStats(stats)) => {
@@ -275,44 +271,5 @@ where
     fn write(&self, _: &ProgressState, w: &mut dyn fmt::Write) {
         let stat = (self.render)(&self.stats.read().unwrap());
         let _ = write!(w, "{}", stat);
-    }
-}
-
-/// Iterates over Borg JSON events piped from an [`AsyncRead`].
-///
-/// This synchronously parses the JSON events in another thread via [`SyncIoBridge`].
-/// Why can't we use a pure async solution?
-///
-/// 1. We can't buffer all the raw JSON into memory (as the `SyncIoBridge` docs suggest),
-///    since it's used to update a live progress bar while Borg is running.
-///
-/// 2. We can't iterate over lines, since Borg isn't guaranteed to emit one JSON object per line.
-///    In particular, current Borg versions pretty-format the final stats object, so a line-based
-///    iterator would choke on it.
-struct BorgJsonReader(mpsc::UnboundedReceiver<Result<BorgJson, JsonError>>);
-
-impl BorgJsonReader {
-    fn new<R>(reader: R) -> Self
-    where
-        R: AsyncRead + Unpin + Send + 'static,
-    {
-        let sync_reader = SyncIoBridge::new(reader);
-        let (tx, rx) = mpsc::unbounded_channel();
-
-        tokio::task::spawn_blocking(move || {
-            serde_json::Deserializer::from_reader(sync_reader)
-                .into_iter()
-                .try_for_each(|log| tx.send(log))
-        });
-
-        Self(rx)
-    }
-}
-
-impl Stream for BorgJsonReader {
-    type Item = Result<BorgJson, JsonError>;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.0.poll_recv(cx)
     }
 }

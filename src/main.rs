@@ -8,6 +8,7 @@ use clap::{Parser, Subcommand};
 mod macros;
 
 mod child;
+mod json;
 mod signals;
 
 mod check;
