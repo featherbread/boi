@@ -1,10 +1,9 @@
 use std::borrow::Cow;
 use std::fmt::{self, Display};
 use std::sync::{Arc, RwLock};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use futures::StreamExt;
-use indicatif::style::ProgressTracker;
 use indicatif::{HumanBytes, ProgressBar, ProgressState, ProgressStyle};
 use serde::de::IgnoredAny;
 use serde_derive::Deserialize;
@@ -17,7 +16,7 @@ use crate::json::JsonStream;
 pub async fn render(mut spawn: Spawn, output: ChildStdout) {
     let last_stats = Arc::new(RwLock::new(ArchiveStats::default()));
     let bar = ProgressBar::new_spinner();
-    bar.set_style(ArchiveStats::bar_style(&last_stats));
+    bar.set_style(ArchiveStats::bar_style(Arc::clone(&last_stats)));
     bar.enable_steady_tick(Duration::from_millis(100));
     bar.set_message("Waiting for Borg to start");
 
@@ -85,27 +84,25 @@ pub async fn render(mut spawn: Spawn, output: ChildStdout) {
         }
     };
 
+    bar.finish_and_clear();
+    let stats = last_stats.read().unwrap();
     match child_result {
         Ok(status) if status.success() => {
-            // NOTE: Providing just one tick string introduces a panic risk.
-            bar.set_style(ArchiveStats::bar_style(&last_stats).tick_strings(&["✓", "✓"]));
             if let Some(duration) = duration {
-                bar.finish_with_message(format!("Created archive in {duration} seconds"));
+                speak!("✓", "{stats} • Created archive in {duration} seconds");
             } else {
-                bar.finish_with_message("Created archive");
+                speak!("✓", "{stats} • Created archive");
             }
         }
         Ok(status) => {
-            bar.set_style(ArchiveStats::bar_style(&last_stats).tick_strings(&["✗", "✗"]));
             if let Some(code) = status.code() {
-                bar.finish_with_message(format!("Borg exited with code {code}"));
+                speak!("✗", "{stats} • Borg exited with code {code}");
             } else {
-                bar.finish_with_message(format!("Borg terminated abnormally: {status}"));
+                speak!("✗", "{stats} • Borg terminated abnormally: {status}");
             }
         }
         Err(err) => {
-            bar.set_style(ArchiveStats::bar_style(&last_stats).tick_strings(&["✗", "✗"]));
-            bar.finish_with_message(format!("Failed to wait for Borg: {err}"));
+            speak!("✗", "{stats} • Failed to wait for Borg: {err}");
         }
     }
 }
@@ -200,76 +197,24 @@ struct ArchiveStats {
 }
 
 impl ArchiveStats {
-    fn bar_style(stats: &Arc<RwLock<ArchiveStats>>) -> ProgressStyle {
-        ProgressStyle::with_template(
-            "[boi] {spinner} {nfiles} N {orig} S {comp} C {ddup} D • {wide_msg}",
-        )
-        .expect("hardcoded ProgressStyle template should be valid")
-        .with_key(
-            "nfiles",
-            ArchiveStatsTracker::new(stats, ArchiveStats::bar_nfiles),
-        )
-        .with_key(
-            "orig",
-            ArchiveStatsTracker::new(stats, ArchiveStats::bar_orig),
-        )
-        .with_key(
-            "comp",
-            ArchiveStatsTracker::new(stats, ArchiveStats::bar_comp),
-        )
-        .with_key(
-            "ddup",
-            ArchiveStatsTracker::new(stats, ArchiveStats::bar_ddup),
-        )
-    }
-
-    fn bar_nfiles(&self) -> u64 {
-        self.nfiles
-    }
-
-    fn bar_orig(&self) -> HumanBytes {
-        HumanBytes(self.original_size)
-    }
-
-    fn bar_comp(&self) -> HumanBytes {
-        HumanBytes(self.compressed_size)
-    }
-
-    fn bar_ddup(&self) -> HumanBytes {
-        HumanBytes(self.deduplicated_size)
+    fn bar_style(stats: Arc<RwLock<ArchiveStats>>) -> ProgressStyle {
+        ProgressStyle::with_template("[boi] {spinner} {stats} • {wide_msg}")
+            .expect("hardcoded ProgressStyle template should be valid")
+            .with_key("stats", move |_: &ProgressState, w: &mut dyn fmt::Write| {
+                let _ = write!(w, "{}", stats.read().unwrap());
+            })
     }
 }
 
-#[derive(Clone)]
-struct ArchiveStatsTracker<F> {
-    stats: Arc<RwLock<ArchiveStats>>,
-    render: F,
-}
-
-impl<F> ArchiveStatsTracker<F> {
-    fn new(stats: &Arc<RwLock<ArchiveStats>>, render: F) -> Self {
-        Self {
-            stats: Arc::clone(stats),
-            render,
-        }
-    }
-}
-
-impl<F, T> ProgressTracker for ArchiveStatsTracker<F>
-where
-    F: Fn(&ArchiveStats) -> T + Clone + Send + Sync + 'static,
-    T: Display,
-{
-    fn clone_box(&self) -> Box<dyn ProgressTracker> {
-        Box::new(self.clone())
-    }
-
-    fn tick(&mut self, _: &ProgressState, _: Instant) {}
-
-    fn reset(&mut self, _: &ProgressState, _: Instant) {}
-
-    fn write(&self, _: &ProgressState, w: &mut dyn fmt::Write) {
-        let stat = (self.render)(&self.stats.read().unwrap());
-        let _ = write!(w, "{}", stat);
+impl Display for ArchiveStats {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{nfiles} N {orig} S {comp} C {ddup} D",
+            nfiles = self.nfiles,
+            orig = HumanBytes(self.original_size),
+            comp = HumanBytes(self.compressed_size),
+            ddup = HumanBytes(self.deduplicated_size),
+        )
     }
 }
