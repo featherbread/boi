@@ -31,31 +31,36 @@ async fn render(mut spawn: Spawn, output: ChildStdout) {
     let style = ProgressStyle::with_template("[boi] {spinner} {bar} {pos}/{len} • {wide_msg}")
         .expect("hardcoded ProgressStyle template should be valid");
 
-    let bar = ProgressBar::no_length();
-    bar.set_style(style.clone());
-    bar.enable_steady_tick(Duration::from_millis(100));
-    bar.set_message("Waiting for Borg to start");
-
-    let mut warned_once = false;
-    let mut warn_once = |msg: &str| {
-        if !warned_once {
-            bar.suspend(|| speak!("⚑", "{msg}"));
-        }
-        warned_once = true;
+    let new_waiting_spinner = || {
+        let bar = ProgressBar::no_length();
+        bar.set_style(style.clone());
+        bar.enable_steady_tick(Duration::from_millis(100));
+        bar.set_message("Waiting for Borg");
+        bar
     };
+
+    let mut bar = new_waiting_spinner();
+    let mut warned_once = false;
+
+    macro_rules! warn_once {
+        ( $( $speak_args:tt ),* ) => {{
+            if !warned_once {
+                bar.suspend(|| speak!("⚑", $($speak_args),*));
+            }
+            warned_once = true;
+        }};
+    }
 
     let mut output_stream = JsonStream::new(output);
     while let Some(raw_log) = output_stream.next().await {
         let raw_event = match raw_log {
             Ok(BorgJson::CheckEvent(raw_event)) => raw_event,
             Ok(BorgJson::Unknown(_)) => {
-                warn_once("Unrecognized log entry from Borg");
+                warn_once!("Unrecognized log entry from Borg");
                 continue;
             }
             Err(err) => {
-                warn_once(&format!(
-                    "Ignoring further Borg output due to JSON error: {err}"
-                ));
+                warn_once!("Ignoring further Borg output due to JSON error: {err}");
                 break;
             }
         };
@@ -64,15 +69,16 @@ async fn render(mut spawn: Spawn, output: ChildStdout) {
             CheckEvent::Blank => continue,
             CheckEvent::ProgressPercent(progress) => progress,
             CheckEvent::ProgressFinished => {
-                warn_once("Finished one thing but cannot monitor others yet");
-                break;
+                bar.finish_and_clear();
+                bar = new_waiting_spinner();
+                continue;
             }
             CheckEvent::LogMessage(msg) => {
                 bar.suspend(|| speak!("⚑", "{msg}"));
                 continue;
             }
             CheckEvent::Unrecognized(msg_type) => {
-                warn_once(&format!("Unrecognized {msg_type} event from Borg"));
+                warn_once!("Unrecognized {msg_type} event from Borg");
                 continue;
             }
         };
