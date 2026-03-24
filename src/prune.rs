@@ -113,17 +113,19 @@ impl DryRun {
     /// Elision is based on long runs of the final time interval (daily, weekly, etc.) at the end
     /// of the list, or on cases where no archives are selected for pruning.
     ///
-    /// As of writing, Borg doesn't have a useful machine-readable output for prune dry-runs.
+    /// As of writing, Borg doesn't have a _useful_ machine-readable output for prune dry-runs
+    /// (--log-json merely wraps these exact lines of text as JSON log_message events).
     fn from_borg_stderr(mut stderr: Vec<u8>) -> DryRun {
         let Ok(output) = str::from_utf8(&stderr) else {
             return DryRun::elide_nothing(stderr);
         };
 
         const KEEP_PREFIX: &str = "Keeping archive (rule: ";
+        const PRUNE_PREFIX: &str = "Would prune:";
 
         // Including the newline simplifies calculations for truncating the stderr buffer.
         let lines: Vec<_> = output.split_inclusive('\n').collect();
-        if lines.iter().all(|l| l.starts_with(KEEP_PREFIX)) {
+        if lines.iter().all(|l| !l.starts_with(PRUNE_PREFIX)) {
             return DryRun::PruneNone;
         }
 
