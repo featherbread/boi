@@ -169,10 +169,10 @@ impl Spawn {
     ///
     /// The first completed wait un-ignores the termination signals ignored by
     /// [`Child::spawn_with_output`]. Subsequent calls are allowed and yield the same return value.
-    pub async fn wait(&mut self) -> io::Result<ExitStatus> {
+    pub async fn wait(&mut self) -> Result<()> {
         let result = self.child.wait().await;
         self.signal_guard = None;
-        result
+        Child::wait_result(result)
     }
 }
 

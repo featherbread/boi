@@ -10,10 +10,10 @@ use serde_derive::Deserialize;
 use serde_json::{json, Map as JsonMap, Value as JsonValue};
 use tokio::process::ChildStdout;
 
-use crate::child::Spawn;
+use crate::child::{self, Spawn};
 use crate::json::JsonStream;
 
-pub async fn render(mut spawn: Spawn, output: ChildStdout) {
+pub async fn render(mut spawn: Spawn, output: ChildStdout) -> child::Result<()> {
     let last_stats = Arc::new(RwLock::new(ArchiveStats::default()));
     let bar = ProgressBar::new_spinner();
     bar.set_style(ArchiveStats::bar_style(Arc::clone(&last_stats)));
@@ -86,25 +86,26 @@ pub async fn render(mut spawn: Spawn, output: ChildStdout) {
 
     bar.finish_and_clear();
     let stats = last_stats.read().unwrap();
-    match child_result {
-        Ok(status) if status.success() => {
+    match &child_result {
+        Ok(()) => {
             if let Some(duration) = duration {
                 speak!("✓", "{stats} • Created archive in {duration} seconds");
             } else {
                 speak!("✓", "{stats} • Created archive");
             }
         }
-        Ok(status) => {
-            if let Some(code) = status.code() {
-                speak!("✗", "{stats} • Borg exited with code {code}");
-            } else {
-                speak!("✗", "{stats} • Borg terminated abnormally: {status}");
-            }
+        Err(child::Error::ExitCode(code)) => {
+            speak!("✗", "{stats} • Borg exited with code {code}");
         }
-        Err(err) => {
+        Err(child::Error::Killed) => {
+            speak!("✗", "{stats} • Borg terminated abnormally");
+        }
+        Err(child::Error::Launch(err)) => {
             speak!("✗", "{stats} • Failed to wait for Borg: {err}");
         }
     }
+
+    child_result
 }
 
 #[derive(Deserialize)]

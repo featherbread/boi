@@ -48,8 +48,7 @@ pub async fn main(args: Args) -> child::Result<()> {
         ]);
 
         let (spawn, output) = child.spawn_with_output()?;
-        frontend::render(spawn, output).await;
-        Ok(())
+        frontend::render(spawn, output).await
     };
 
     let result: child::Result<()> = match args.driver {
@@ -58,8 +57,8 @@ pub async fn main(args: Args) -> child::Result<()> {
         #[cfg(boi_has_driver = "none")]
         DriverKind::None => driver_none::in_backup_root(run).await,
     };
-    if let Err(err) = result {
-        die!("Borg did not succeed ({err}); you should look at that.");
+    if result.is_err() {
+        die!("Borg did not succeed; you should look at that.");
     }
     Ok(())
 }
