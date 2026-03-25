@@ -1,5 +1,6 @@
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use std::thread;
 
 use futures::Stream;
 use serde::de::DeserializeOwned;
@@ -32,7 +33,7 @@ where
         let sync_reader = SyncIoBridge::new(reader);
         let (tx, rx) = mpsc::unbounded_channel();
 
-        tokio::task::spawn_blocking(move || {
+        thread::spawn(move || {
             serde_json::Deserializer::from_reader(sync_reader)
                 .into_iter()
                 .try_for_each(|log| tx.send(log))
