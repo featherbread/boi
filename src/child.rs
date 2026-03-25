@@ -24,7 +24,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// commands, but should be used carefully.
 pub struct Child(tokio::process::Command);
 
-#[allow(unused)]
+#[allow(dead_code)]
 impl Child {
     /// Constructs a new [`Child`] from a command name followed by arguments.
     ///
@@ -90,7 +90,7 @@ impl Child {
         let output = std::process::ChildStdout::from(output);
         let output = ChildStdout::from_std(output).map_err(Error::Launch)?;
 
-        let mut child = self
+        let child = self
             .0
             .stdout(stdout_in)
             .stderr(stderr_in)
