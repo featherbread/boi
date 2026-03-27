@@ -5,6 +5,7 @@ use std::time::Duration;
 use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::borg::ProgressPercent;
+use crate::child;
 
 pub struct Reporter {
     bar: ProgressBar,
@@ -92,6 +93,19 @@ impl Reporter {
         if !self.did_once {
             self.suspend(op);
             self.did_once = true;
+        }
+    }
+
+    pub async fn wait_for_spawn<S>(&mut self, spawn: &mut child::Spawn, msg: S) -> child::Result<()>
+    where
+        S: Into<Cow<'static, str>>,
+    {
+        match tokio::time::timeout(Duration::from_millis(500), spawn.wait()).await {
+            Ok(result) => result,
+            Err(_timeout) => {
+                self.post_message(msg);
+                spawn.wait().await
+            }
         }
     }
 

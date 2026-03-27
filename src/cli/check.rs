@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use futures::StreamExt;
 use tokio::process::ChildStdout;
 
@@ -53,13 +51,9 @@ async fn render(mut spawn: Spawn, output: ChildStdout) -> child::Result<()> {
         }
     }
 
-    let child_result = match tokio::time::timeout(Duration::from_millis(500), spawn.wait()).await {
-        Ok(result) => result,
-        Err(_timeout) => {
-            reporter.post_message("Waiting for Borg to exit");
-            spawn.wait().await
-        }
-    };
+    let child_result = reporter
+        .wait_for_spawn(&mut spawn, "Waiting for Borg to exit")
+        .await;
 
     reporter.clear();
     match &child_result {
