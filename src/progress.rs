@@ -12,7 +12,7 @@ pub struct Reporter {
     did_once: bool,
 }
 
-pub enum Report {
+enum Report {
     Message(Cow<'static, str>),
     Progress(ProgressPercent),
 }
@@ -23,7 +23,11 @@ enum StyleMode {
 }
 
 impl Reporter {
-    pub fn new(state: Report) -> Self {
+    pub fn new<S>(msg: S) -> Self
+    where
+        S: Into<Cow<'static, str>>,
+    {
+        let state = Report::Message(msg.into());
         let mut reporter = Self {
             bar: ProgressBar::no_length(),
             style: StyleMode::Auto(mem::discriminant(&state)),
@@ -42,7 +46,18 @@ impl Reporter {
         self.style = StyleMode::Forced;
     }
 
-    pub fn post(&mut self, state: Report) {
+    pub fn post_message<S>(&mut self, msg: S)
+    where
+        S: Into<Cow<'static, str>>,
+    {
+        self.post(Report::Message(msg.into()));
+    }
+
+    pub fn post_progress(&mut self, progress: ProgressPercent) {
+        self.post(Report::Progress(progress));
+    }
+
+    fn post(&mut self, state: Report) {
         let want_style = mem::discriminant(&state);
         if let StyleMode::Auto(have_style) = self.style
             && have_style != want_style

@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::env;
 use std::fmt;
 use std::fmt::Display;
@@ -12,7 +11,7 @@ use tokio::process::ChildStdout;
 
 use crate::borg::{self, ArchiveStats, Event, Progress};
 use crate::child::{self, Child, Spawn};
-use crate::progress::{Report, Reporter};
+use crate::progress::Reporter;
 
 #[cfg(boi_has_driver = "apfs")]
 use crate::snapshot::driver_apfs;
@@ -102,7 +101,7 @@ pub async fn main(args: Args) -> child::Result<()> {
 pub async fn render(mut spawn: Spawn, output: ChildStdout) -> child::Result<()> {
     let last_stats = Arc::new(RwLock::new(ArchiveStats::default()));
 
-    let mut reporter = Reporter::new(Report::Message(Cow::Borrowed("Waiting for Borg to start")));
+    let mut reporter = Reporter::new("Waiting for Borg to start");
     reporter.force_style({
         let stats = Arc::clone(&last_stats);
         ProgressStyle::with_template("[boi] {spinner} {stats} • {wide_msg}")
@@ -117,14 +116,14 @@ pub async fn render(mut spawn: Spawn, output: ChildStdout) -> child::Result<()> 
     while let Some(event) = event_stream.next().await {
         match event {
             Ok(Event::ProgressMessage(msg)) => {
-                reporter.post(Report::Message(Cow::Owned(msg)));
+                reporter.post_message(msg);
             }
             Ok(Event::ArchiveProgress(Progress::Finished)) => {
-                reporter.post(Report::Message(Cow::Borrowed("Finished archiving files")));
+                reporter.post_message("Finished archiving files");
             }
             Ok(Event::ArchiveProgress(Progress::Running(progress))) => {
                 *last_stats.write().unwrap() = progress.stats;
-                reporter.post(Report::Message(Cow::Owned(progress.path)));
+                reporter.post_message(progress.path);
             }
             Ok(Event::ArchiveComplete(event)) => {
                 archive_complete_event = Some(event);
@@ -157,7 +156,7 @@ pub async fn render(mut spawn: Spawn, output: ChildStdout) -> child::Result<()> 
     let child_result = match tokio::time::timeout(Duration::from_millis(500), spawn.wait()).await {
         Ok(result) => result,
         Err(_timeout) => {
-            reporter.post(Report::Message(Cow::Borrowed("Waiting for Borg to exit")));
+            reporter.post_message("Waiting for Borg to exit");
             spawn.wait().await
         }
     };

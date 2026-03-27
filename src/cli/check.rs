@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::time::Duration;
 
 use futures::StreamExt;
@@ -6,7 +5,7 @@ use tokio::process::ChildStdout;
 
 use crate::borg::{self, Event, LogLevel, Progress};
 use crate::child::{self, Child, Spawn};
-use crate::progress::{Report, Reporter};
+use crate::progress::Reporter;
 
 #[derive(clap::Args)]
 pub struct Args {
@@ -25,17 +24,15 @@ pub async fn main(args: Args) -> child::Result<()> {
 }
 
 async fn render(mut spawn: Spawn, output: ChildStdout) -> child::Result<()> {
-    let waiting_msg = Cow::Borrowed("Waiting for Borg");
-    let mut reporter = Reporter::new(Report::Message(waiting_msg.clone()));
-
+    let mut reporter = Reporter::new("Waiting for Borg");
     let mut event_stream = borg::stream(output);
     while let Some(event) = event_stream.next().await {
         match event {
             Ok(Event::ProgressPercent(Progress::Running(progress))) => {
-                reporter.post(Report::Progress(progress));
+                reporter.post_progress(progress);
             }
             Ok(Event::ProgressPercent(Progress::Finished)) => {
-                reporter.post(Report::Message(waiting_msg.clone()));
+                reporter.post_message("Waiting for Borg");
             }
             Ok(Event::LogMessage(msg)) if msg.level >= LogLevel::Warning => {
                 reporter.suspend(|| speak!("⚑", "{}", msg.message));
@@ -59,7 +56,7 @@ async fn render(mut spawn: Spawn, output: ChildStdout) -> child::Result<()> {
     let child_result = match tokio::time::timeout(Duration::from_millis(500), spawn.wait()).await {
         Ok(result) => result,
         Err(_timeout) => {
-            reporter.post(Report::Message(waiting_msg));
+            reporter.post_message("Waiting for Borg to exit");
             spawn.wait().await
         }
     };
