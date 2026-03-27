@@ -1,4 +1,7 @@
+use std::fmt::{self, Display};
+
 use futures::{stream, Stream, StreamExt};
+use indicatif::HumanBytes;
 use serde::de::{DeserializeOwned, IgnoredAny};
 use serde_derive::Deserialize;
 use serde_json::{Map as JsonMap, Value as JsonValue};
@@ -18,7 +21,13 @@ where
 #[serde(untagged)]
 enum Raw {
     Typed(TypedRaw),
+    CreateStats(CreateStatsRaw),
     Unknown(IgnoredAny),
+}
+
+#[derive(Deserialize)]
+struct CreateStatsRaw {
+    archive: ArchiveComplete,
 }
 
 #[derive(Deserialize)]
@@ -63,23 +72,34 @@ impl TypedRaw {
 pub enum Event {
     Blank,
     LogMessage(LogMessage),
+    ProgressMessage(String),
     ProgressPercent(Progress<ProgressPercent>),
+    ArchiveProgress(Progress<ArchiveProgress>),
+    ArchiveComplete(ArchiveComplete),
     Unknown(Option<String>),
 }
 
 impl From<Raw> for Event {
     fn from(raw: Raw) -> Self {
-        let Raw::Typed(typed) = raw else {
-            return Event::Unknown(None);
-        };
+        match raw {
+            Raw::Unknown(_) => Event::Unknown(None),
+            Raw::CreateStats(stats) => Event::ArchiveComplete(stats.archive),
+            Raw::Typed(typed) => match typed.msg_type.as_str() {
+                "log_message" => match typed.message() {
+                    Some(_) => typed.rest_into(Event::LogMessage),
+                    None => Event::Blank,
+                },
 
-        match typed.msg_type.as_str() {
-            "log_message" if typed.message().is_none() => Event::Blank,
-            "log_message" => typed.rest_into(Event::LogMessage),
+                "progress_message" => match typed.message() {
+                    Some(msg) => Event::ProgressMessage(msg.to_owned()),
+                    None => Event::Blank,
+                },
 
-            "progress_percent" => typed.progress_into(Event::ProgressPercent),
+                "progress_percent" => typed.progress_into(Event::ProgressPercent),
+                "archive_progress" => typed.progress_into(Event::ArchiveProgress),
 
-            _ => Event::Unknown(Some(typed.msg_type)),
+                _ => Event::Unknown(Some(typed.msg_type)),
+            },
         }
     }
 }
@@ -113,4 +133,40 @@ pub struct ProgressPercent {
     pub current: u64,
     pub total: u64,
     pub message: String,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default)]
+pub struct ArchiveProgress {
+    pub path: String,
+    #[serde(flatten)]
+    pub stats: ArchiveStats,
+}
+
+#[derive(Deserialize)]
+pub struct ArchiveComplete {
+    pub duration: f64,
+    pub stats: ArchiveStats,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default)]
+pub struct ArchiveStats {
+    pub nfiles: u64,
+    pub original_size: u64,
+    pub compressed_size: u64,
+    pub deduplicated_size: u64,
+}
+
+impl Display for ArchiveStats {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{nfiles} N {orig} S {comp} C {ddup} D",
+            nfiles = self.nfiles,
+            orig = HumanBytes(self.original_size),
+            comp = HumanBytes(self.compressed_size),
+            ddup = HumanBytes(self.deduplicated_size),
+        )
+    }
 }
