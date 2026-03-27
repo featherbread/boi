@@ -7,25 +7,20 @@ mod macros;
 
 mod borg;
 mod child;
+mod cli;
 mod json;
 mod signals;
-
-mod check;
-mod completion;
-mod prune;
 mod snapshot;
-#[cfg(feature = "upload")]
-mod upload;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     let result = match Cli::parse().command {
-        CliCommand::Check(args) => check::main(args).await,
-        CliCommand::Completion(args) => completion::main(args).await,
-        CliCommand::Prune(args) => prune::main(args).await,
-        CliCommand::Snapshot(args) => snapshot::main(args).await,
+        CliCommand::Check(args) => cli::check::main(args).await,
+        CliCommand::Completion(args) => cli::completion::main(args).await,
+        CliCommand::Prune(args) => cli::prune::main(args).await,
+        CliCommand::Snapshot(args) => cli::snapshot::main(args).await,
         #[cfg(feature = "upload")]
-        CliCommand::Upload => upload::main().await,
+        CliCommand::Upload => cli::upload::main().await,
     };
     if let Err(err) = result {
         err.die();
@@ -42,17 +37,17 @@ struct Cli {
 #[derive(Subcommand)]
 enum CliCommand {
     /// Check the consistency of the repository
-    Check(check::Args),
+    Check(cli::check::Args),
 
     /// Generate the autocompletion script for the specified shell
-    Completion(completion::Args),
+    Completion(cli::completion::Args),
 
     /// Thin out old backups
-    Prune(prune::Args),
+    Prune(cli::prune::Args),
 
     /// Create a new backup
     #[command(visible_aliases = ["s", "snap"])]
-    Snapshot(snapshot::Args),
+    Snapshot(cli::snapshot::Args),
 
     /// Upload the repository via a custom script on the remote host
     ///
