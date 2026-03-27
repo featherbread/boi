@@ -8,7 +8,7 @@ use crate::borg::ProgressPercent;
 
 pub struct Reporter {
     bar: ProgressBar,
-    last_style: Discriminant<Report>,
+    style: StyleMode,
     did_once: bool,
 }
 
@@ -17,11 +17,16 @@ pub enum Report {
     Progress(ProgressPercent),
 }
 
+enum StyleMode {
+    Auto(Discriminant<Report>),
+    Forced,
+}
+
 impl Reporter {
     pub fn new(state: Report) -> Self {
         let mut reporter = Self {
             bar: ProgressBar::no_length(),
-            last_style: mem::discriminant(&state),
+            style: StyleMode::Auto(mem::discriminant(&state)),
             did_once: false,
         };
 
@@ -32,11 +37,16 @@ impl Reporter {
         reporter
     }
 
+    pub fn force_style(&mut self, style: ProgressStyle) {
+        self.bar.set_style(style);
+        self.style = StyleMode::Forced;
+    }
+
     pub fn post(&mut self, state: Report) {
-        let new_discriminant = mem::discriminant(&state);
-        if self.last_style != new_discriminant {
+        let want_style = mem::discriminant(&state);
+        if let StyleMode::Auto(have_style) = self.style && have_style != want_style {
             switch_bar_style(&mut self.bar, &state);
-            self.last_style = new_discriminant;
+            self.style = StyleMode::Auto(want_style);
         }
 
         match state {
