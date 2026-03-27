@@ -44,7 +44,9 @@ impl Reporter {
 
     pub fn post(&mut self, state: Report) {
         let want_style = mem::discriminant(&state);
-        if let StyleMode::Auto(have_style) = self.style && have_style != want_style {
+        if let StyleMode::Auto(have_style) = self.style
+            && have_style != want_style
+        {
             switch_bar_style(&mut self.bar, &state);
             self.style = StyleMode::Auto(want_style);
         }

@@ -19,8 +19,8 @@
 //! implementation could conflict with other manipulation of the signal handlers in rare cases.
 //! It's best not to combine this module with any other form of signal handling.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Once;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use futures::StreamExt;
 use signal_hook_tokio::Signals;

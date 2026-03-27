@@ -1,6 +1,6 @@
 use std::fmt::{self, Display};
 
-use futures::{stream, Stream, StreamExt};
+use futures::{Stream, StreamExt, stream};
 use indicatif::HumanBytes;
 use serde::de::{DeserializeOwned, IgnoredAny};
 use serde_derive::Deserialize;
