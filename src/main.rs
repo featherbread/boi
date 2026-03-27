@@ -9,6 +9,7 @@ mod borg;
 mod child;
 mod cli;
 mod json;
+mod progress;
 mod signals;
 mod snapshot;
 

@@ -2,11 +2,11 @@ use std::borrow::Cow;
 use std::time::Duration;
 
 use futures::StreamExt;
-use indicatif::{ProgressBar, ProgressStyle};
 use tokio::process::ChildStdout;
 
 use crate::borg::{self, Event, LogLevel, Progress};
 use crate::child::{self, Child, Spawn};
+use crate::progress::{Report, Reporter};
 
 #[derive(clap::Args)]
 pub struct Args {
@@ -25,56 +25,31 @@ pub async fn main(args: Args) -> child::Result<()> {
 }
 
 async fn render(mut spawn: Spawn, output: ChildStdout) -> child::Result<()> {
-    let style = ProgressStyle::with_template("[boi] {spinner} {bar} {pos}/{len} • {wide_msg}")
-        .expect("hardcoded ProgressStyle template should be valid");
-
-    let new_waiting_spinner = || {
-        let bar = ProgressBar::no_length();
-        bar.set_style(style.clone());
-        bar.enable_steady_tick(Duration::from_millis(100));
-        bar.set_message("Waiting for Borg");
-        bar
-    };
-
-    let mut bar = new_waiting_spinner();
-    let mut warned_once = false;
-
-    let mut warn_once = |bar: &mut ProgressBar, msg: &str| {
-        if !warned_once {
-            bar.suspend(|| speak!("⚑", "{msg}"));
-        }
-        warned_once = true;
-    };
+    let waiting_msg = Cow::Borrowed("Waiting for Borg");
+    let mut reporter = Reporter::new(Report::Message(waiting_msg.clone()));
 
     let mut event_stream = borg::stream(output);
     while let Some(event) = event_stream.next().await {
         match event {
             Ok(Event::ProgressPercent(Progress::Running(progress))) => {
-                bar.set_length(progress.total);
-                bar.set_position(progress.current);
-                bar.set_message(progress.message);
+                reporter.post(Report::Progress(progress));
             }
             Ok(Event::ProgressPercent(Progress::Finished)) => {
-                bar.finish_and_clear();
-                bar = new_waiting_spinner();
+                reporter.post(Report::Message(waiting_msg.clone()));
             }
             Ok(Event::LogMessage(msg)) if msg.level >= LogLevel::Warning => {
-                bar.suspend(|| speak!("⚑", "{}", msg.message));
+                reporter.suspend(|| speak!("⚑", "{}", msg.message));
             }
-            Ok(Event::Unknown(event_type)) => {
-                warn_once(
-                    &mut bar,
-                    &match event_type {
-                        None => Cow::Borrowed("Unrecognized event from Borg"),
-                        Some(ty) => Cow::Owned(format!("Unrecognized {ty} event from Borg")),
-                    },
-                );
+            Ok(Event::Unknown(None)) => {
+                reporter.suspend_once(|| speak!("⚑", "Unrecognized event from Borg"));
+            }
+            Ok(Event::Unknown(Some(ty))) => {
+                reporter.suspend_once(|| speak!("⚑", "Unrecognized {ty} event from Borg"));
             }
             Err(err) => {
-                warn_once(
-                    &mut bar,
-                    &format!("Ignoring further Borg output due to JSON error: {err}"),
-                );
+                reporter.suspend(|| {
+                    speak!("⚑", "Ignoring further Borg output due to JSON error: {err}")
+                });
                 break;
             }
             _ => {}
@@ -84,12 +59,12 @@ async fn render(mut spawn: Spawn, output: ChildStdout) -> child::Result<()> {
     let child_result = match tokio::time::timeout(Duration::from_millis(500), spawn.wait()).await {
         Ok(result) => result,
         Err(_timeout) => {
-            bar.set_message("Waiting for Borg to exit");
+            reporter.post(Report::Message(waiting_msg));
             spawn.wait().await
         }
     };
 
-    bar.finish_and_clear();
+    reporter.clear();
     match &child_result {
         Ok(()) => {
             speak!("✓", "Repository is valid");
