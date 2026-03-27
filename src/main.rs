@@ -5,6 +5,7 @@ use clap::{Parser, Subcommand};
 #[macro_use]
 mod macros;
 
+mod borg;
 mod child;
 mod json;
 mod signals;
