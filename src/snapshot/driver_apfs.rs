@@ -43,81 +43,77 @@ async fn enter_snapshot(args: Args) -> impl Future<Output = ()> {
     let Ok(home_sub) = home_abs.strip_prefix("/") else {
         die!("$HOME isn't an absolute path; this is too confusing.");
     };
-
     let Ok(mount_src) = find_mount_base(&home_abs).map_err(|err| {
         die!("Can't find where $HOME is mounted ({err}); I won't be able to snapshot.")
     });
-
-    let snapshot_date = create_local_snapshot().await;
-    let snapshot_id = format!("com.apple.TimeMachine.{snapshot_date}.local");
 
     let mount_target = env::temp_dir().join(format!(
         "{pkg}-apfs-{pid}",
         pkg = env!("CARGO_PKG_NAME"),
         pid = std::process::id()
     ));
+    let backup_root = mount_target.join(home_sub);
+
+    let snapshot_date = create_local_snapshot().await;
+    let snapshot_id = format!("com.apple.TimeMachine.{snapshot_date}.local");
 
     speak!("$", "mkdir {dir}", dir = mount_target.display());
-    if let Err(err) = fs::create_dir_all(&mount_target).await {
-        die!("Failed to create mount directory ({err}); I can't mount the snapshot.");
-    }
+    fs::create_dir_all(&mount_target).await.map_err(|err| {
+        die!("Failed to create mount directory ({err}); I can't mount the snapshot.")
+    });
 
     let mount_cmdline = os_strs![
         "mount_apfs",
         "-s",
         &snapshot_id,
         &mount_src,
-        mount_target.as_os_str(),
+        mount_target.as_os_str()
     ];
-    if let Err(err) = Child::from_cmdline(&mount_cmdline)
+    Child::from_cmdline(&mount_cmdline)
         .null_output()
         .complete()
         .await
-    {
-        die!("Can't mount snapshot ({err}); I won't be able to back it up.");
-    }
+        .map_err(|err| die!("Can't mount snapshot ({err}); I won't be able to back it up."));
 
-    let backup_root = mount_target.join(home_sub);
     speak!("$", "cd {dir}", dir = backup_root.display());
-    if let Err(err) = env::set_current_dir(backup_root) {
-        die!("Can't change to snapshot dir ({err}); I won't be able to back it up.");
-    }
+    env::set_current_dir(backup_root).map_err(|err| {
+        die!("Can't change to snapshot dir ({err}); I won't be able to back it up.")
+    });
 
     // Returning a future for the cleanup removes lots of boilerplate compared to an RAII guard,
     // since we don't need to hand-write a struct for the values we care about sharing.
     // Any awkwardness of this approach is internal to this module.
     async move {
         speak!("$", "cd {dir}", dir = home_abs.display());
-        if let Err(err) = env::set_current_dir(home_abs) {
-            die!("Can't return to $HOME ({err}); I won't be able to unmount the snapshot.");
-        }
+        env::set_current_dir(home_abs).map_err(|err| {
+            die!("Can't return to $HOME ({err}); I won't be able to unmount the snapshot.")
+        });
 
-        if let Err(err) =
-            Child::from_cmdline(&os_strs!["diskutil", "unmount", mount_target.as_os_str()])
-                .null_output()
-                .complete()
-                .await
-        {
-            die!("Failed to unmount snapshot ({err}); you should take a look at that.");
-        }
+        Child::from_cmdline(&os_strs!["diskutil", "unmount", mount_target.as_os_str()])
+            .null_output()
+            .complete()
+            .await
+            .map_err(|err| {
+                die!("Failed to unmount snapshot ({err}); you should take a look at that.")
+            });
 
         speak!("$", "rmdir {dir}", dir = mount_target.display());
-        if let Err(err) = fs::remove_dir(mount_target).await {
-            die!("Failed to remove mount directory ({err}); you should take a look at that.");
-        }
+        fs::remove_dir(mount_target).await.map_err(|err| {
+            die!("Failed to remove mount directory ({err}); you should take a look at that.")
+        });
 
         if args.apfs_keep_snapshot {
             return;
         }
-        if let Err(err) = Child::from_cmdline(&["tmutil", "deletelocalsnapshots", &snapshot_date])
+        Child::from_cmdline(&["tmutil", "deletelocalsnapshots", &snapshot_date])
             .null_input()
             .null_output()
             .null_timezone()
             .spawn_and_background_after(Duration::from_millis(500))
             .await
-        {
-            die!("Failed to start snapshot cleanup ({err}); you should take a look at that.");
-        }
+            .map_err(|err| {
+                die!("Failed to start snapshot cleanup ({err}); you should take a look at that.")
+            });
     }
 }
 
