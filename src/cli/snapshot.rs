@@ -11,7 +11,7 @@ use tokio::process::ChildStdout;
 
 use crate::borg::{self, ArchiveStats, Event, Progress};
 use crate::child::{self, Child, Spawn};
-use crate::progress::Reporter;
+use crate::reporting::Reporter;
 
 #[cfg(boi_has_driver = "apfs")]
 use crate::snapshot::driver_apfs;

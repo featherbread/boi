@@ -5,7 +5,7 @@ use tokio::process::ChildStdout;
 
 use crate::borg::{self, Event, LogLevel, Progress};
 use crate::child::{self, Child, Spawn};
-use crate::progress::Reporter;
+use crate::reporting::Reporter;
 
 #[derive(clap::Args)]
 pub struct Args {
