@@ -115,6 +115,8 @@ impl DryRun {
     ///
     /// As of writing, Borg doesn't have a _useful_ machine-readable output for prune dry-runs
     /// (--log-json merely wraps these exact lines of text as JSON log_message events).
+    /// A contributor from the community recently introduced this to the master branch,
+    /// though I'm not sure if or how that percolates back to the pre-2.x branches.
     fn from_borg_stderr(mut stderr: Vec<u8>) -> DryRun {
         let Ok(output) = str::from_utf8(&stderr) else {
             return DryRun::elide_nothing(stderr);
