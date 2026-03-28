@@ -40,10 +40,7 @@ struct TypedRaw {
 
 impl TypedRaw {
     fn message(&self) -> Option<&str> {
-        self.rest
-            .get("message")
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
+        self.rest["message"].as_str().filter(|s| !s.is_empty())
     }
 
     fn rest_into<T, F>(self, map: F) -> Event
@@ -61,7 +58,7 @@ impl TypedRaw {
         F: FnOnce(Progress<T>) -> Event,
         T: DeserializeOwned,
     {
-        if self.rest.get("finished") == Some(&JsonValue::Bool(true)) {
+        if self.rest["finished"] == JsonValue::Bool(true) {
             map(Progress::Finished)
         } else {
             self.rest_into(|rest| map(Progress::Running(rest)))
