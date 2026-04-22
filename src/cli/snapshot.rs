@@ -37,13 +37,14 @@ pub enum DriverKind {
     None,
 }
 
+#[expect(clippy::derivable_impls)] // False positive, clippy doesn't understand this construction.
 impl Default for DriverKind {
-    #[allow(unreachable_code)]
     fn default() -> Self {
-        #[cfg(boi_has_driver = "apfs")]
-        return DriverKind::Apfs;
-        #[cfg(boi_has_driver = "none")]
-        return DriverKind::None;
+        cfg_select! {
+            boi_has_driver = "apfs" => DriverKind::Apfs,
+            boi_has_driver = "none" => DriverKind::None,
+            _ => compile_error!("no snapshot drivers enabled by cfg(boi_has_driver)"),
+        }
     }
 }
 

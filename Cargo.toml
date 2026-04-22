@@ -5,6 +5,7 @@ description = "Manage backups with Borg"
 repository = "https://github.com/featherbread/boi"
 authors = ["Alex Hamlin <alex@alexhamlin.co>"]
 edition = "2024"
+rust-version = "1.95.0"
 
 [features]
 default = ["upload"]
