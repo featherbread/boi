@@ -19,6 +19,7 @@
 //! implementation could conflict with other manipulation of the signal handlers in rare cases.
 //! It's best not to combine this module with any other form of signal handling.
 
+use std::marker::PhantomData;
 use std::sync::Once;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -28,7 +29,11 @@ use signal_hook_tokio::Signals;
 static IGNORE_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 /// See [`ignore`].
-pub struct IgnoreGuard;
+pub struct IgnoreGuard {
+    /// Prevent the guard from being constructed outside this module, without the required signal
+    /// initialization and atomic increment.
+    _private: PhantomData<()>,
+}
 
 /// Ignore common termination signals until the [`IgnoreGuard`] is dropped.
 ///
@@ -41,7 +46,9 @@ pub struct IgnoreGuard;
 pub fn ignore() -> IgnoreGuard {
     setup();
     IGNORE_COUNT.fetch_add(1, Ordering::Relaxed);
-    IgnoreGuard
+    IgnoreGuard {
+        _private: PhantomData,
+    }
 }
 
 impl Drop for IgnoreGuard {
