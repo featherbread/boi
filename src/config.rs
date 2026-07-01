@@ -8,15 +8,12 @@ use tokio::sync::OnceCell;
 
 #[derive(Deserialize)]
 pub struct Config {
-    #[expect(unused)]
     repos: IndexMap<String, RepoConfig>,
 }
 
 #[derive(Deserialize)]
 pub struct RepoConfig {
-    #[expect(unused)]
     repo_url: String,
-    #[expect(unused)]
     password_command: Option<String>,
     // TODO: Include timezone as a per-repo and/or global setting?
 }
@@ -50,6 +47,31 @@ impl Config {
         };
         let content = tokio::fs::read_to_string(path).await?;
         toml::from_str(&content).map_err(Into::into)
+    }
+
+    pub fn one_or_die(&self) -> &RepoConfig {
+        match self.repos.get_index(0) {
+            Some((_, config)) if self.repos.len() == 1 => config,
+            Some(_) => die!("Found more than one repo in your config; you'll need to pick one."),
+            None => die!("Can't find any repos in your config; what do I operate on?"),
+        }
+    }
+
+    pub fn get_or_die(&self, name: &str) -> &RepoConfig {
+        match self.repos.get(name) {
+            Some(config) => config,
+            None => die!("Can't find any {name:?} repo in your config; what do I operate on?"),
+        }
+    }
+}
+
+impl RepoConfig {
+    pub fn env(&self) -> impl Iterator<Item = (&'static str, String)> {
+        let mut envs = vec![("BORG_REPO", self.repo_url.clone())];
+        if let Some(cmd) = self.password_command.as_ref() {
+            envs.push(("BORG_PASSCOMMAND", cmd.clone()));
+        }
+        envs.into_iter()
     }
 }
 

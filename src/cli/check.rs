@@ -8,19 +8,29 @@ use crate::reporting::Reporter;
 
 #[derive(clap::Args)]
 pub struct Args {
+    /// The repository to work on
+    repository: Option<String>,
+
     /// Only perform repository checks (chunk CRCs)
     #[arg(long)]
     repository_only: bool,
 }
 
 pub async fn main(args: Args) -> child::Result<()> {
-    let _config = Config::load_or_die().await; // TODO: Use this.
+    let config = Config::load_or_die().await;
+    let repo = match &args.repository {
+        Some(name) => config.get_or_die(name),
+        None => config.one_or_die(),
+    };
 
     let mut cmdline = vec!["borg", "check", "-v", "--progress", "--log-json"];
     if args.repository_only {
         cmdline.push("--repository-only");
     }
-    let (spawn, output) = Child::from_cmdline(&cmdline).spawn_with_output()?;
+    let (spawn, output) = Child::from_cmdline(&cmdline)
+        .for_borg_repo(repo)
+        .spawn_with_output()?;
+
     render(spawn, output).await
 }
 

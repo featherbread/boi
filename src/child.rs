@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use tokio::process::ChildStdout;
 
+use crate::config::RepoConfig;
 use crate::signals;
 
 /// A result type for execution of a [`Child`].
@@ -39,6 +40,14 @@ impl Child {
             cmd.env("TZ", tz);
         }
         Child(cmd)
+    }
+
+    /// Configures a child's environment to work with a single Borg repository.
+    pub fn for_borg_repo(mut self, config: &RepoConfig) -> Self {
+        for (key, value) in config.env() {
+            self.0.env(key, value);
+        }
+        self
     }
 
     /// Directs the child's standard output and error streams to a null device.
