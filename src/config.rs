@@ -73,6 +73,10 @@ impl RepoConfig {
         }
         envs.into_iter()
     }
+
+    pub fn repo_url(&self) -> &str {
+        &self.repo_url
+    }
 }
 
 #[derive(Debug)]
