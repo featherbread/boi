@@ -4,6 +4,7 @@ use std::fmt::Display;
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt};
 
 use crate::child::{self, Child};
+use crate::config::Config;
 
 #[derive(clap::Args)]
 pub struct Args {
@@ -33,6 +34,8 @@ impl Display for Profile {
 }
 
 pub async fn main(args: Args) -> child::Result<()> {
+    let _config = Config::load_or_die().await; // TODO: Use this.
+
     let mut base_cmdline = vec!["borg", "prune", "-v", "--list"];
     match args.profile {
         Profile::Normal => base_cmdline.extend([

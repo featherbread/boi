@@ -22,6 +22,11 @@ pub struct RepoConfig {
 }
 
 impl Config {
+    pub async fn load_or_die() -> &'static Config {
+        let Ok(config) = Self::load().await.map_err(|err| err.die());
+        config
+    }
+
     pub async fn load() -> Result<&'static Config, Error> {
         static CONFIG: OnceCell<Config> = OnceCell::const_new();
         CONFIG.get_or_try_init(Self::load_inner).await
@@ -73,6 +78,15 @@ impl Display for Error {
         match self {
             Self::Open(err) => Display::fmt(err, f),
             Self::Parse(err) => Display::fmt(err, f),
+        }
+    }
+}
+
+impl Error {
+    pub fn die(&self) -> ! {
+        match self {
+            Self::Open(err) => die!("Can't load the boi config ({err}); I can't do anything!"),
+            Self::Parse(err) => die!("Can't load the boi config; I can't do anything!\n\n{err}"),
         }
     }
 }

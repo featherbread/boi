@@ -14,15 +14,8 @@ mod reporting;
 mod signals;
 mod snapshot;
 
-use config::Config;
-
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
-    // TODO: This should be deferred until a command needs it, not break argument parsing.
-    let _config = Config::load().await.map_err(|err| {
-        die!("Can't load boi config; now what?\n\n{err}");
-    });
-
     let result = match Cli::parse().command {
         CliCommand::Check(args) => cli::check::main(args).await,
         CliCommand::Completion(args) => cli::completion::main(args).await,

@@ -4,8 +4,11 @@ use std::env;
 use url::Url;
 
 use crate::child::{self, Child};
+use crate::config::Config;
 
 pub async fn main() -> child::Result<()> {
+    let _config = Config::load_or_die().await; // TODO: Use this.
+
     let Ok(repo) = env::var("BORG_REPO")
         .map_err(|err| die!("Can't read $BORG_REPO ({err}); what do I upload?"));
 

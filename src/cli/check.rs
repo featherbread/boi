@@ -3,6 +3,7 @@ use tokio::process::ChildStdout;
 
 use crate::borg::{self, Event, LogLevel, Progress};
 use crate::child::{self, Child, Spawn};
+use crate::config::Config;
 use crate::reporting::Reporter;
 
 #[derive(clap::Args)]
@@ -13,6 +14,8 @@ pub struct Args {
 }
 
 pub async fn main(args: Args) -> child::Result<()> {
+    let _config = Config::load_or_die().await; // TODO: Use this.
+
     let mut cmdline = vec!["borg", "check", "-v", "--progress", "--log-json"];
     if args.repository_only {
         cmdline.push("--repository-only");

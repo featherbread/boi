@@ -10,6 +10,7 @@ use tokio::process::ChildStdout;
 
 use crate::borg::{self, ArchiveStats, Event, Progress};
 use crate::child::{self, Child, Spawn};
+use crate::config::Config;
 use crate::reporting::Reporter;
 
 #[cfg(boi_has_driver = "apfs")]
@@ -60,6 +61,8 @@ impl Display for DriverKind {
 }
 
 pub async fn main(args: Args) -> child::Result<()> {
+    let _config = Config::load_or_die().await; // TODO: Use this.
+
     let Ok(repo) = env::var("BORG_REPO")
         .map_err(|err| die!("Can't read $BORG_REPO ({err}); how can I back up?"));
 
