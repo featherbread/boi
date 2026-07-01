@@ -20,7 +20,7 @@ use config::Config;
 async fn main() {
     // TODO: This should be deferred until a command needs it, not break argument parsing.
     let _config = Config::load().await.map_err(|err| {
-        die!("Can't load boi config ({err}); now what?");
+        die!("Can't load boi config; now what?\n\n{err}");
     });
 
     let result = match Cli::parse().command {
