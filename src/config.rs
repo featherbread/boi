@@ -1,5 +1,7 @@
-use std::env;
+use std::ffi::OsString;
 use std::fmt::Display;
+use std::path::{Path, PathBuf};
+use std::{env, iter};
 
 use indexmap::IndexMap;
 use serde_derive::Deserialize;
@@ -48,18 +50,45 @@ impl Config {
     }
 
     async fn load_inner() -> Result<Config, Error> {
-        // TODO: This "should" care about stuff like $XDG_CONFIG_HOME, but I've clearly documented
-        // that this tool is designed for my use alone.
-        //
-        // I can state with certainty that boi will **NEVER** use any "platform config dirs" crate
-        // that resolves to ~/Library paths on macOS, regardless of how else I tweak this. It will
-        // ONLY default to XDG paths that are standard on other Unix-like platforms.
-        let path = match env::home_dir() {
-            Some(path) => path.join(".config").join("boi").join("boi.toml"),
-            None => die!("Can't find $HOME; where do I load your config from?"),
+        let Some(path) = Self::config_path().await else {
+            die!("Can't find your boi.toml; what do I do?");
         };
         let content = tokio::fs::read_to_string(path).await?;
         toml::from_str(&content).map_err(Into::into)
+    }
+
+    async fn config_path() -> Option<PathBuf> {
+        // If $BOI_CONFIG_DIR_PATH is explicitly set, then boi.toml _must_ be found there
+        // (since you probably had a good reason to set an explicit config path).
+        // TODO: Distinguish this from the case where an XDG lookup doesn't find it.
+        if let Some(config_dir) = env::var_os("BOI_CONFIG_DIR_PATH") {
+            let path = PathBuf::from(config_dir).join("boi.toml");
+            return Self::exists(&path).await.then_some(path);
+        }
+
+        // TODO: If I used non-Unixy systems, I'd do something more comprehensive than XDG alone.
+        // I can say for sure I'd never use a "platform config dirs" crate that touches ~/Library
+        // on macOS; only directories that are standard on other Unixy platforms. (`etcetera` seems
+        // to be the one good choice by this metric.)
+        let xdg_config_home = env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .or_else(|| env::home_dir().map(|dir| dir.join(".config")));
+
+        let xdg_config_dirs = env::var_os("XDG_CONFIG_DIRS").unwrap_or(OsString::from("/etc/xdg"));
+        let xdg_config_dirs = env::split_paths(&xdg_config_dirs);
+
+        for config_dir in iter::chain(xdg_config_home, xdg_config_dirs) {
+            let path = config_dir.join("boi").join("boi.toml");
+            if Self::exists(&path).await {
+                return Some(path);
+            }
+        }
+
+        None
+    }
+
+    async fn exists(path: impl AsRef<Path>) -> bool {
+        tokio::fs::try_exists(path).await.ok() == Some(true)
     }
 
     pub fn global(&self) -> &GlobalConfig {
