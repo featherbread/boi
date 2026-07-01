@@ -1,3 +1,4 @@
+pub mod borg;
 pub mod check;
 pub mod completion;
 pub mod prune;

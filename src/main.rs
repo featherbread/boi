@@ -17,6 +17,7 @@ mod snapshot;
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     let result = match Cli::parse().command {
+        CliCommand::Borg(args) => cli::borg::main(args).await,
         CliCommand::Check(args) => cli::check::main(args).await,
         CliCommand::Completion(args) => cli::completion::main(args).await,
         CliCommand::Prune(args) => cli::prune::main(args).await,
@@ -38,6 +39,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum CliCommand {
+    /// Run a Borg CLI command for a single repo
+    Borg(cli::borg::Args),
+
     /// Check the consistency of the repository
     Check(cli::check::Args),
 
