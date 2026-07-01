@@ -23,7 +23,7 @@ async fn main() {
         CliCommand::Prune(args) => cli::prune::main(args).await,
         CliCommand::Snapshot(args) => cli::snapshot::main(args).await,
         #[cfg(feature = "upload")]
-        CliCommand::Upload => cli::upload::main().await,
+        CliCommand::Upload(args) => cli::upload::main(args).await,
     };
     if let Err(err) = result {
         err.die();
@@ -72,5 +72,5 @@ enum CliCommand {
     #[cfg(feature = "upload")]
     #[command(visible_alias = "up")]
     #[command(verbatim_doc_comment)]
-    Upload,
+    Upload(cli::upload::Args),
 }
