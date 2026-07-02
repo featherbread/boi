@@ -6,16 +6,22 @@ use serde_derive::Deserialize;
 use tokio::io;
 use tokio::sync::OnceCell;
 
-#[derive(Deserialize)]
+#[derive(Default, Deserialize)]
+#[serde(default)]
 pub struct Config {
+    global: GlobalConfig,
     repos: IndexMap<String, RepoConfig>,
+}
+
+#[derive(Default, Deserialize)]
+pub struct GlobalConfig {
+    timezone: Option<String>,
 }
 
 #[derive(Deserialize)]
 pub struct RepoConfig {
     repo_url: String,
     password_command: Option<String>,
-    // TODO: Include timezone as a per-repo and/or global setting?
 }
 
 impl Config {
@@ -49,6 +55,10 @@ impl Config {
         toml::from_str(&content).map_err(Into::into)
     }
 
+    pub fn global(&self) -> &GlobalConfig {
+        &self.global
+    }
+
     pub fn one_or_die(&self) -> &RepoConfig {
         match self.repos.get_index(0) {
             Some((_, config)) if self.repos.len() == 1 => config,
@@ -62,6 +72,12 @@ impl Config {
             Some(config) => config,
             None => die!("Can't find any {name:?} repo in your config; what do I operate on?"),
         }
+    }
+}
+
+impl GlobalConfig {
+    pub fn timezone(&self) -> Option<&str> {
+        self.timezone.as_deref()
     }
 }
 

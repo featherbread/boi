@@ -29,7 +29,8 @@ pub async fn main(args: Args) -> child::Result<()> {
     }
     let (spawn, output) = Child::from_cmdline(&cmdline)
         .for_borg_repo(repo)
-        .spawn_with_output()?;
+        .spawn_with_output()
+        .await?;
 
     render(spawn, output).await
 }

@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use tokio::process::ChildStdout;
 
-use crate::config::RepoConfig;
+use crate::config::{Config, RepoConfig};
 use crate::signals;
 
 /// A result type for execution of a [`Child`].
@@ -23,7 +23,10 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// Timezone-sensitive commands like `borg prune` need this to behave consistently, so this default
 /// is chosen to limit the risk of data loss. [`Child::null_timezone`] can override this for select
 /// commands, but should be used carefully.
-pub struct Child(tokio::process::Command);
+pub struct Child {
+    pending_cmd: tokio::process::Command,
+    timezone_nulled: bool,
+}
 
 #[allow(dead_code)]
 impl Child {
@@ -36,29 +39,29 @@ impl Child {
         let (program, args) = cmdline.split_first().expect("cmdline should not be empty");
         let mut cmd = tokio::process::Command::new(program);
         cmd.args(args);
-        if let Some(tz) = std::env::var_os("BOI_TZ") {
-            cmd.env("TZ", tz);
+        Child {
+            pending_cmd: cmd,
+            timezone_nulled: false,
         }
-        Child(cmd)
     }
 
     /// Configures a child's environment to work with a single Borg repository.
     pub fn for_borg_repo(mut self, config: &RepoConfig) -> Self {
         for (key, value) in config.env() {
-            self.0.env(key, value);
+            self.pending_cmd.env(key, value);
         }
         self
     }
 
     /// Directs the child's standard output and error streams to a null device.
     pub fn null_output(mut self) -> Self {
-        self.0.stdout(Stdio::null()).stderr(Stdio::null());
+        self.pending_cmd.stdout(Stdio::null()).stderr(Stdio::null());
         self
     }
 
     /// Directs the child's standard input stream to a null device.
     pub fn null_input(mut self) -> Self {
-        self.0.stdin(Stdio::null());
+        self.pending_cmd.stdin(Stdio::null());
         self
     }
 
@@ -69,7 +72,7 @@ impl Child {
     ///
     /// Use this with caution, and avoid it on Borg commands.
     pub fn null_timezone(mut self) -> Self {
-        self.0.env_remove("TZ");
+        self.timezone_nulled = true;
         self
     }
 
@@ -77,10 +80,11 @@ impl Child {
     ///
     /// Until `complete` returns, the parent ignores common termination signals under the
     /// assumption that they're sent to the entire process group.
-    pub async fn complete(mut self) -> Result<()> {
+    pub async fn complete(self) -> Result<()> {
         speak!("$", "{self}");
 
-        let mut spawn = self.0.spawn().map_err(Error::Launch)?;
+        let mut cmd = self.into_cmd().await?;
+        let mut spawn = cmd.spawn().map_err(Error::Launch)?;
         let _signal_guard = signals::ignore();
         Self::wait_result(spawn.wait().await)
     }
@@ -89,7 +93,7 @@ impl Child {
     ///
     /// Until the first call to [`Spawn::wait`] returns, the parent ignores common termination
     /// signals under the assumption that they're sent to the entire process group.
-    pub fn spawn_with_output(mut self) -> Result<(Spawn, ChildStdout)> {
+    pub async fn spawn_with_output(self) -> Result<(Spawn, ChildStdout)> {
         speak!("$", "{self}");
 
         let (output, stdout_in) = std::io::pipe().map_err(Error::Launch)?;
@@ -99,8 +103,8 @@ impl Child {
         let output = std::process::ChildStdout::from(output);
         let output = ChildStdout::from_std(output).map_err(Error::Launch)?;
 
-        let child = self
-            .0
+        let mut cmd = self.into_cmd().await?;
+        let child = cmd
             .stdout(stdout_in)
             .stderr(stderr_in)
             .spawn()
@@ -126,10 +130,11 @@ impl Child {
     /// spawned in the background. However, the child is run in an independent process group, so
     /// will not receive keyboard-generated signals even if its output remains connected to a
     /// terminal.
-    pub async fn spawn_and_background_after(mut self, duration: Duration) -> Result<()> {
+    pub async fn spawn_and_background_after(self, duration: Duration) -> Result<()> {
         speak!("$", "{self} &");
 
-        let mut child = self.0.process_group(0).spawn().map_err(Error::Launch)?;
+        let mut cmd = self.into_cmd().await?;
+        let mut child = cmd.process_group(0).spawn().map_err(Error::Launch)?;
         match tokio::time::timeout(duration, child.wait()).await {
             Err(_timeout) => Ok(()),
             Ok(wait) => Self::wait_result(wait),
@@ -141,9 +146,34 @@ impl Child {
     ///
     /// Nothing special is done with respect to signal handling. This is intended for short-running
     /// children that a user is unlikely to interrupt.
-    pub async fn capture_output(mut self) -> Result<Output> {
+    pub async fn capture_output(self) -> Result<Output> {
         speak!("$", "{self}");
-        self.0.output().await.map_err(Error::Launch)
+
+        let mut cmd = self.into_cmd().await?;
+        cmd.output().await.map_err(Error::Launch)
+    }
+
+    /// Performs final configuration of the command based on the global config file, which may need
+    /// to be loaded asynchronously. This lets the rest of the builder API remain synchronous.
+    async fn into_cmd(mut self) -> Result<tokio::process::Command> {
+        // This is unlikely to fail in practice, since loading the config (or dying) is the first
+        // thing most subcommands do. Treating it as Error::Launch means nobody has to deal with it
+        // as a special case, especially with the unusual toml::de::Error Display impl.
+        let config = Config::load()
+            .await
+            .map_err(|_| Error::Launch(io::Error::other("failed to load boi configuration")))?;
+
+        if self.timezone_nulled {
+            self.pending_cmd.env_remove("TZ");
+        } else if let Some(tz) = config.global().timezone() {
+            self.pending_cmd.env("TZ", tz);
+        } else {
+            // Inherit $TZ from the environment. You might regret this
+            // if you prune your repo while traveling with your computer!
+        }
+
+        let cmd = self.pending_cmd;
+        Ok(cmd)
     }
 
     fn wait_result(result: std::result::Result<ExitStatus, io::Error>) -> Result<()> {
@@ -160,7 +190,7 @@ impl Child {
 
 impl Display for Child {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let cmd = self.0.as_std();
+        let cmd = self.pending_cmd.as_std();
         write!(f, "{cmd}", cmd = cmd.get_program().display())?;
         cmd.get_args()
             .try_for_each(|arg| write!(f, " {arg}", arg = arg.display()))
