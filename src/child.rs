@@ -80,9 +80,9 @@ impl Child {
     pub async fn complete(mut self) -> Result<()> {
         speak!("$", "{self}");
 
+        let mut spawn = self.0.spawn().map_err(Error::Launch)?;
         let _signal_guard = signals::ignore();
-
-        Self::wait_result(self.0.spawn().map_err(Error::Launch)?.wait().await)
+        Self::wait_result(spawn.wait().await)
     }
 
     /// Spawns the child and provides access to its combined standard streams.
