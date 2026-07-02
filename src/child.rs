@@ -19,7 +19,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 ///
 /// Each command line is [spoken](speak) before running it, like `set -x` in a shell.
 ///
-/// If `BOI_TZ` is set in the environment, the child's `TZ` is set to that value by default.
+/// If a timezone is set in the configuration, the child's `TZ` is set to that value by default.
 /// Timezone-sensitive commands like `borg prune` need this to behave consistently, so this default
 /// is chosen to limit the risk of data loss. [`Child::null_timezone`] can override this for select
 /// commands, but should be used carefully.
@@ -67,7 +67,7 @@ impl Child {
 
     /// Removes any `TZ` value from the child's environment.
     ///
-    /// This includes `BOI_TZ` overrides as described in [the type-level documentation](Child),
+    /// This includes the config-based override described in [the type-level documentation](Child),
     /// as well as any `TZ` value that would be inherited from the parent environment.
     ///
     /// Use this with caution, and avoid it on Borg commands.
