@@ -108,7 +108,10 @@ impl RepoConfig {
 
 #[derive(Debug)]
 pub enum Error {
+    /// The config file is missing or can't be opened.
     Open(io::Error),
+    /// The config file isn't valid TOML. Note that `toml::de::Error` has an unusual multi-line
+    /// `Display` impl that's best rendered with a blank line separating it from earlier text.
     Parse(toml::de::Error),
 }
 
@@ -130,7 +133,7 @@ impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Open(err) => Display::fmt(err, f),
-            Self::Parse(err) => Display::fmt(err, f),
+            Self::Parse(err) => Display::fmt(err.message(), f),
         }
     }
 }
