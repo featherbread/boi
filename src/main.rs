@@ -8,6 +8,7 @@ mod macros;
 mod borg;
 mod child;
 mod cli;
+mod config;
 mod json;
 mod reporting;
 mod signals;
@@ -16,12 +17,13 @@ mod snapshot;
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     let result = match Cli::parse().command {
+        CliCommand::Borg(args) => cli::borg::main(args).await,
         CliCommand::Check(args) => cli::check::main(args).await,
         CliCommand::Completion(args) => cli::completion::main(args).await,
         CliCommand::Prune(args) => cli::prune::main(args).await,
         CliCommand::Snapshot(args) => cli::snapshot::main(args).await,
         #[cfg(feature = "upload")]
-        CliCommand::Upload => cli::upload::main().await,
+        CliCommand::Upload(args) => cli::upload::main(args).await,
     };
     if let Err(err) = result {
         err.die();
@@ -37,6 +39,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum CliCommand {
+    /// Run a Borg CLI command for a single repo
+    Borg(cli::borg::Args),
+
     /// Check the consistency of the repository
     Check(cli::check::Args),
 
@@ -67,5 +72,5 @@ enum CliCommand {
     #[cfg(feature = "upload")]
     #[command(visible_alias = "up")]
     #[command(verbatim_doc_comment)]
-    Upload,
+    Upload(cli::upload::Args),
 }

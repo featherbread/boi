@@ -4,16 +4,26 @@ use std::env;
 use url::Url;
 
 use crate::child::{self, Child};
+use crate::config::Config;
 
-pub async fn main() -> child::Result<()> {
-    let Ok(repo) = env::var("BORG_REPO")
-        .map_err(|err| die!("Can't read $BORG_REPO ({err}); what do I upload?"));
+#[derive(clap::Args)]
+pub struct Args {
+    /// The repository to work on
+    repository: Option<String>,
+}
 
-    let Ok(repo) = Url::parse(&repo)
-        .map_err(|err| die!("Can't parse $BORG_REPO as a URL ({err}); what do I upload?"));
+pub async fn main(args: Args) -> child::Result<()> {
+    let config = Config::load_or_die().await;
+    let repo = match &args.repository {
+        Some(name) => config.get_or_die(name),
+        None => config.one_or_die(),
+    };
+
+    let Ok(repo) = Url::parse(repo.repo_url())
+        .map_err(|err| die!("Can't parse configured repo_url ({err}); what do I upload?"));
 
     if repo.scheme() != "ssh" {
-        die!("$BORG_REPO isn't an ssh:// URL; where do I connect?");
+        die!("Configured repo_url isn't an ssh:// URL; where do I connect?");
     }
 
     let port = repo.port().map(|port| port.to_string());

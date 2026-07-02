@@ -4,9 +4,13 @@ use std::fmt::Display;
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt};
 
 use crate::child::{self, Child};
+use crate::config::{Config, RepoConfig};
 
 #[derive(clap::Args)]
 pub struct Args {
+    /// The repository to work on
+    repository: Option<String>,
+
     /// How to select archives for pruning
     #[arg(short = 'p')]
     #[arg(long)]
@@ -33,6 +37,12 @@ impl Display for Profile {
 }
 
 pub async fn main(args: Args) -> child::Result<()> {
+    let config = Config::load_or_die().await;
+    let repo = match &args.repository {
+        Some(name) => config.get_or_die(name),
+        None => config.one_or_die(),
+    };
+
     let mut base_cmdline = vec!["borg", "prune", "-v", "--list"];
     match args.profile {
         Profile::Normal => base_cmdline.extend([
@@ -45,7 +55,7 @@ pub async fn main(args: Args) -> child::Result<()> {
         Profile::Aggressive => base_cmdline.extend(["--keep-daily=3"]),
     }
 
-    let result = dry_run(&base_cmdline).await;
+    let result = dry_run(repo, &base_cmdline).await;
     result.dump_to_stderr().await;
     if result.is_prune_none() {
         return Ok(());
@@ -60,18 +70,23 @@ pub async fn main(args: Args) -> child::Result<()> {
 
     let mut prune_cmdline = base_cmdline.clone();
     prune_cmdline.extend(["--stats", "--progress"]);
-    Child::from_cmdline(&prune_cmdline).complete().await?;
+    Child::from_cmdline(&prune_cmdline)
+        .for_borg_repo(repo)
+        .complete()
+        .await?;
 
     Child::from_cmdline(&["borg", "compact", "-v", "--progress"])
+        .for_borg_repo(repo)
         .complete()
         .await
 }
 
-async fn dry_run(base_cmdline: &[&str]) -> DryRun {
+async fn dry_run(repo: &RepoConfig, base_cmdline: &[&str]) -> DryRun {
     let mut cmdline = base_cmdline.to_vec();
     cmdline.push("--dry-run");
 
     let Ok(output) = Child::from_cmdline(&cmdline)
+        .for_borg_repo(repo)
         .capture_output()
         .await
         .map_err(|err| die!("Prune dry run failed to launch ({err}); you should look at that."));

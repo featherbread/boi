@@ -10,6 +10,7 @@ use tokio::process::ChildStdout;
 
 use crate::borg::{self, ArchiveStats, Event, Progress};
 use crate::child::{self, Child, Spawn};
+use crate::config::Config;
 use crate::reporting::Reporter;
 
 #[cfg(boi_has_driver = "apfs")]
@@ -19,6 +20,9 @@ use crate::snapshot::driver_none;
 
 #[derive(clap::Args)]
 pub struct Args {
+    /// The repository to work on
+    repository: Option<String>,
+
     /// How to snapshot the home directory
     #[arg(long)]
     #[arg(default_value_t)]
@@ -60,16 +64,19 @@ impl Display for DriverKind {
 }
 
 pub async fn main(args: Args) -> child::Result<()> {
-    let Ok(repo) = env::var("BORG_REPO")
-        .map_err(|err| die!("Can't read $BORG_REPO ({err}); how can I back up?"));
+    let config = Config::load_or_die().await;
+    let repo = match &args.repository {
+        Some(name) => config.get_or_die(name),
+        None => config.one_or_die(),
+    };
 
     let Ok(ts) = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) else {
         die!("System time is before the UNIX epoch; what are you doing?!?");
     };
 
     let run = async {
-        let backup_spec = format!("{repo}::{sec}", sec = ts.as_secs());
-        let child = Child::from_cmdline(&[
+        let backup_spec = format!("{repo}::{sec}", repo = repo.repo_url(), sec = ts.as_secs());
+        let cmdline = [
             "borg",
             "create",
             "--exclude-from=.borg-excludes",
@@ -80,9 +87,11 @@ pub async fn main(args: Args) -> child::Result<()> {
             "--json",
             &backup_spec,
             ".",
-        ]);
+        ];
+        let (spawn, output) = Child::from_cmdline(&cmdline)
+            .for_borg_repo(repo)
+            .spawn_with_output()?;
 
-        let (spawn, output) = child.spawn_with_output()?;
         render(spawn, output).await
     };
 
