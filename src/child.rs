@@ -84,9 +84,9 @@ impl Child {
         speak!("$", "{self}");
 
         let mut cmd = self.into_cmd().await?;
-        let mut spawn = cmd.spawn().map_err(Error::Launch)?;
+        let mut child = cmd.spawn().map_err(Error::Launch)?;
         let _signal_guard = signals::ignore();
-        Self::wait_result(spawn.wait().await)
+        Self::wait_result(child.wait().await)
     }
 
     /// Spawns the child and provides access to its combined standard streams.
