@@ -47,15 +47,18 @@ async fn enter_snapshot(args: Args) -> impl Future<Output = ()> {
         die!("Can't find where $HOME is mounted ({err}); I won't be able to snapshot.")
     });
 
+    let snapshot_date = create_local_snapshot().await;
+    let snapshot_id = format!("com.apple.TimeMachine.{snapshot_date}.local");
+
+    // The APFS driver only makes sense on Apple platforms, which default to providing per-user
+    // temporary directories with secure read and write permissions. The PID is used solely to
+    // limit collisions with previous boi instances that failed to fully clean up this state,
+    // and NOT as a dangerously defective strategy for generating unpredictable temporary paths.
     let mount_target = env::temp_dir().join(format!(
         "{pkg}-apfs-{pid}",
         pkg = env!("CARGO_PKG_NAME"),
         pid = std::process::id()
     ));
-    let backup_root = mount_target.join(home_sub);
-
-    let snapshot_date = create_local_snapshot().await;
-    let snapshot_id = format!("com.apple.TimeMachine.{snapshot_date}.local");
 
     speak!("$", "mkdir {dir}", dir = mount_target.display());
     fs::create_dir_all(&mount_target).await.map_err(|err| {
@@ -75,6 +78,7 @@ async fn enter_snapshot(args: Args) -> impl Future<Output = ()> {
         .await
         .map_err(|err| die!("Can't mount snapshot ({err}); I won't be able to back it up."));
 
+    let backup_root = mount_target.join(home_sub);
     speak!("$", "cd {dir}", dir = backup_root.display());
     env::set_current_dir(backup_root).map_err(|err| {
         die!("Can't change to snapshot dir ({err}); I won't be able to back it up.")
