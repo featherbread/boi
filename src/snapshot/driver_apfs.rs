@@ -61,7 +61,7 @@ async fn enter_snapshot(args: Args) -> impl Future<Output = ()> {
     ));
 
     speak!("$", "mkdir {dir}", dir = mount_target.display());
-    fs::create_dir_all(&mount_target).await.map_err(|err| {
+    fs::create_dir(&mount_target).await.map_err(|err| {
         die!("Failed to create mount directory ({err}); I can't mount the snapshot.")
     });
 
