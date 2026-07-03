@@ -1,3 +1,5 @@
+use std::ops::ControlFlow;
+
 use futures::StreamExt;
 use tokio::process::ChildStdout;
 
@@ -49,19 +51,10 @@ async fn render(mut spawn: Spawn, output: ChildStdout) -> child::Result<()> {
             Ok(Event::LogMessage(msg)) if msg.level >= LogLevel::Warning => {
                 reporter.suspend(|| speak!("⚑", "{}", msg.message));
             }
-            Ok(Event::Unknown(None)) => {
-                reporter.suspend_once(|| speak!("⚑", "Unrecognized event from Borg"));
-            }
-            Ok(Event::Unknown(Some(ty))) => {
-                reporter.suspend_once(|| speak!("⚑", "Unrecognized {ty} event from Borg"));
-            }
-            Err(err) => {
-                reporter.suspend(|| {
-                    speak!("⚑", "Ignoring further Borg output due to JSON error: {err}")
-                });
-                break;
-            }
-            _ => {}
+            event => match reporter.post_unhandled_event(event) {
+                ControlFlow::Continue(()) => {}
+                ControlFlow::Break(()) => break,
+            },
         }
     }
 

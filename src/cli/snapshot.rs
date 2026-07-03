@@ -1,6 +1,7 @@
 use std::env;
 use std::fmt;
 use std::fmt::Display;
+use std::ops::ControlFlow;
 use std::sync::{Arc, RwLock};
 use std::time::SystemTime;
 
@@ -141,19 +142,10 @@ pub async fn render(mut spawn: Spawn, output: ChildStdout) -> child::Result<()> 
             Ok(Event::LogMessage(msg)) => {
                 reporter.suspend(|| speak!("⚑", "{}", msg.message));
             }
-            Ok(Event::Unknown(None)) => {
-                reporter.suspend_once(|| speak!("⚑", "Unrecognized event from Borg"));
-            }
-            Ok(Event::Unknown(Some(ty))) => {
-                reporter.suspend_once(|| speak!("⚑", "Unrecognized {ty} event from Borg"));
-            }
-            Err(err) => {
-                reporter.suspend(|| {
-                    speak!("⚑", "Ignoring further Borg output due to JSON error: {err}")
-                });
-                break;
-            }
-            _ => {}
+            event => match reporter.post_unhandled_event(event) {
+                ControlFlow::Continue(()) => {}
+                ControlFlow::Break(()) => break,
+            },
         }
     }
 

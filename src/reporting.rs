@@ -1,11 +1,12 @@
 use std::borrow::Cow;
 use std::mem::{self, Discriminant};
+use std::ops::ControlFlow;
 use std::sync::LazyLock;
 use std::time::Duration;
 
 use indicatif::{ProgressBar, ProgressStyle};
 
-use crate::borg::ProgressPercent;
+use crate::borg::{Event, ProgressPercent};
 use crate::child;
 
 pub struct Reporter {
@@ -94,6 +95,26 @@ impl Reporter {
         if !self.did_once {
             self.suspend(op);
             self.did_once = true;
+        }
+    }
+
+    pub fn post_unhandled_event(&mut self, event: serde_json::Result<Event>) -> ControlFlow<()> {
+        match event {
+            Ok(Event::Unknown(None)) => {
+                self.suspend_once(|| speak!("⚑", "Unrecognized event from Borg"));
+                ControlFlow::Continue(())
+            }
+            Ok(Event::Unknown(Some(ty))) => {
+                self.suspend_once(|| speak!("⚑", "Unrecognized {ty} event from Borg"));
+                ControlFlow::Continue(())
+            }
+            Err(err) => {
+                self.suspend(|| {
+                    speak!("⚑", "Ignoring further Borg output due to JSON error: {err}")
+                });
+                ControlFlow::Break(())
+            }
+            _ => ControlFlow::Continue(()),
         }
     }
 
