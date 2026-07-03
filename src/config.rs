@@ -6,22 +6,34 @@ use serde_derive::Deserialize;
 use tokio::io;
 use tokio::sync::OnceCell;
 
-#[derive(Default, Deserialize)]
-#[serde(default)]
+#[derive(Deserialize)]
 pub struct Config {
+    /// Common settings that may apply to any subcommand.
     global: GlobalConfig,
+
+    /// Settings for individual Borg repositories.
+    #[serde(default)]
     repos: IndexMap<String, RepoConfig>,
 }
 
-#[derive(Default, Deserialize)]
+#[derive(Deserialize)]
 pub struct GlobalConfig {
-    timezone: Option<String>,
+    /// A timezone to use for all timezone-sensitive commands, regardless of system-wide settings.
+    /// Borg's `prune` command is sensitive to timezones when computing the set of archives to
+    /// delete, so **you may lose data** if you change this on a mature repository.
+    timezone: String,
 }
 
 #[derive(Deserialize)]
 pub struct RepoConfig {
+    /// The repository URL, i.e. `$BORG_REPO`; see
+    /// https://borgbackup.readthedocs.io/en/stable/usage/general.html#repository-urls.
     repo_url: String,
-    password_command: Option<String>,
+
+    /// A command Borg will run to get the repository's passphrase, i.e. `$BORG_PASSCOMMAND`.
+    /// This must work non-interactively, and should read the passphrase from a suitable credential
+    /// manager that doesn't store passphrases in plain text on disk.
+    password_command: String,
 }
 
 impl Config {
@@ -76,18 +88,17 @@ impl Config {
 }
 
 impl GlobalConfig {
-    pub fn timezone(&self) -> Option<&str> {
-        self.timezone.as_deref()
+    pub fn timezone(&self) -> &str {
+        &self.timezone
     }
 }
 
 impl RepoConfig {
     pub fn env(&self) -> impl Iterator<Item = (&'static str, String)> {
-        let mut envs = vec![("BORG_REPO", self.repo_url.clone())];
-        if let Some(cmd) = self.password_command.as_ref() {
-            envs.push(("BORG_PASSCOMMAND", cmd.clone()));
-        }
-        envs.into_iter()
+        IntoIterator::into_iter([
+            ("BORG_REPO", self.repo_url.clone()),
+            ("BORG_PASSCOMMAND", self.password_command.clone()),
+        ])
     }
 
     pub fn repo_url(&self) -> &str {

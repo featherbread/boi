@@ -165,11 +165,8 @@ impl Child {
 
         if self.timezone_nulled {
             self.pending_cmd.env_remove("TZ");
-        } else if let Some(tz) = config.global().timezone() {
-            self.pending_cmd.env("TZ", tz);
         } else {
-            // Inherit $TZ from the environment. You might regret this
-            // if you prune your repo while traveling with your computer!
+            self.pending_cmd.env("TZ", config.global().timezone());
         }
 
         let cmd = self.pending_cmd;
