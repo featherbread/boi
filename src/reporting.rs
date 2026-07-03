@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 use std::mem::{self, Discriminant};
+use std::sync::LazyLock;
 use std::time::Duration;
 
 use indicatif::{ProgressBar, ProgressStyle};
@@ -122,11 +123,17 @@ fn switch_bar_style(bar: &mut ProgressBar, state: &Report) {
 }
 
 fn message_style() -> ProgressStyle {
-    ProgressStyle::with_template("[boi] {spinner} {wide_msg}")
-        .expect("hardcoded ProgressStyle template should be valid")
+    static STYLE: LazyLock<ProgressStyle> = LazyLock::new(|| {
+        ProgressStyle::with_template("[boi] {spinner} {wide_msg}")
+            .expect("hardcoded ProgressStyle template should be valid")
+    });
+    STYLE.clone()
 }
 
 fn progress_style() -> ProgressStyle {
-    ProgressStyle::with_template("[boi] {spinner} {bar} {pos}/{len} • {wide_msg}")
-        .expect("hardcoded ProgressStyle template should be valid")
+    static STYLE: LazyLock<ProgressStyle> = LazyLock::new(|| {
+        ProgressStyle::with_template("[boi] {spinner} {bar} {pos}/{len} • {wide_msg}")
+            .expect("hardcoded ProgressStyle template should be valid")
+    });
+    STYLE.clone()
 }
