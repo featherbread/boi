@@ -55,13 +55,8 @@ impl Config {
         // that resolves to ~/Library paths on macOS, regardless of how else I tweak this. It will
         // ONLY default to XDG paths that are standard on other Unix-like platforms.
         let path = match env::home_dir() {
+            Some(path) => path.join(".config").join("boi").join("boi.toml"),
             None => die!("Can't find $HOME; where do I load your config from?"),
-            Some(mut path) => {
-                path.push(".config");
-                path.push("boi");
-                path.push("boi.toml");
-                path
-            }
         };
         let content = tokio::fs::read_to_string(path).await?;
         toml::from_str(&content).map_err(Into::into)
