@@ -55,6 +55,11 @@ pub async fn main(args: Args) -> child::Result<()> {
         Profile::Aggressive => base_cmdline.extend(["--keep-daily=3"]),
     }
 
+    speak!(
+        "⚑",
+        "Dry-running a prune for {profile} cleanup",
+        profile = args.profile
+    );
     let result = dry_run(repo, &base_cmdline).await;
     result.dump_to_stderr().await;
     if result.is_prune_none() {
@@ -68,6 +73,7 @@ pub async fn main(args: Args) -> child::Result<()> {
         return Ok(()); // Don't treat immediate EOF or read errors as confirmation.
     }
 
+    speak!("⚑", "Pruning snapshots for real");
     let mut prune_cmdline = base_cmdline.clone();
     prune_cmdline.extend(["--stats", "--progress"]);
     Child::from_cmdline(&prune_cmdline)
@@ -75,6 +81,7 @@ pub async fn main(args: Args) -> child::Result<()> {
         .complete()
         .await?;
 
+    speak!("⚑", "Compacting archives");
     Child::from_cmdline(&["borg", "compact", "-v", "--progress"])
         .for_borg_repo(repo)
         .complete()
@@ -203,7 +210,7 @@ impl DryRun {
         dump_all_stderr(stderr).await;
         if let Some(DryRunElision { interval, count }) = elided {
             speak!(
-                "✱",
+                "⚑",
                 "Keeping {count} more {interval} {snaps} too.",
                 snaps = if *count == 1 { "snapshot" } else { "snapshots" }
             );

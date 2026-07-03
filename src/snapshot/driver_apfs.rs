@@ -60,7 +60,6 @@ async fn enter_snapshot(args: Args) -> impl Future<Output = ()> {
         pid = std::process::id()
     ));
 
-    speak!("$", "mkdir {dir}", dir = mount_target.display());
     fs::create_dir(&mount_target).await.map_err(|err| {
         die!("Failed to create mount directory ({err}); I can't mount the snapshot.")
     });
@@ -79,16 +78,16 @@ async fn enter_snapshot(args: Args) -> impl Future<Output = ()> {
         .map_err(|err| die!("Can't mount snapshot ({err}); I won't be able to back it up."));
 
     let backup_root = mount_target.join(home_sub);
-    speak!("$", "cd {dir}", dir = backup_root.display());
     env::set_current_dir(backup_root).map_err(|err| {
         die!("Can't change to snapshot dir ({err}); I won't be able to back it up.")
     });
+
+    speak!("✓", "Created and mounted APFS snapshot {snapshot_date}");
 
     // Returning a future for the cleanup removes lots of boilerplate compared to an RAII guard,
     // since we don't need to hand-write a struct for the values we care about sharing.
     // Any awkwardness of this approach is internal to this module.
     async move {
-        speak!("$", "cd {dir}", dir = home_abs.display());
         env::set_current_dir(home_abs).map_err(|err| {
             die!("Can't return to $HOME ({err}); I won't be able to unmount the snapshot.")
         });
@@ -101,12 +100,12 @@ async fn enter_snapshot(args: Args) -> impl Future<Output = ()> {
                 die!("Failed to unmount snapshot ({err}); you should take a look at that.")
             });
 
-        speak!("$", "rmdir {dir}", dir = mount_target.display());
         fs::remove_dir(mount_target).await.map_err(|err| {
             die!("Failed to remove mount directory ({err}); you should take a look at that.")
         });
 
         if args.apfs_keep_snapshot {
+            speak!("✓", "Unmounted APFS snapshot; keeping per your request");
             return;
         }
         Child::from_cmdline(&["tmutil", "deletelocalsnapshots", &snapshot_date])
@@ -118,6 +117,8 @@ async fn enter_snapshot(args: Args) -> impl Future<Output = ()> {
             .map_err(|err| {
                 die!("Failed to start snapshot cleanup ({err}); you should take a look at that.")
             });
+
+        speak!("✓", "Unmounted APFS snapshot; deleting in background");
     }
 }
 

@@ -39,5 +39,6 @@ pub async fn main(args: Args) -> child::Result<()> {
     }
     cmdline.extend([destination.as_ref(), "boi-upload", repo.path()]);
 
+    speak!("⚑", "Uploading {path} on {destination}", path = repo.path());
     Child::from_cmdline(&cmdline).complete().await
 }

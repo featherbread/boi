@@ -17,8 +17,6 @@ pub type Result<T> = std::result::Result<T, Error>;
 ///
 /// The child inherits the parent's environment and standard streams unless specified otherwise.
 ///
-/// Each command line is [spoken](speak) before running it, like `set -x` in a shell.
-///
 /// If a timezone is set in the configuration, the child's `TZ` is set to that value by default.
 /// Timezone-sensitive commands like `borg prune` need this to behave consistently, so this default
 /// is chosen to limit the risk of data loss. [`Child::null_timezone`] can override this for select
@@ -81,8 +79,6 @@ impl Child {
     /// Until `complete` returns, the parent ignores common termination signals under the
     /// assumption that they're sent to the entire process group.
     pub async fn complete(self) -> Result<()> {
-        speak!("$", "{self}");
-
         let mut cmd = self.into_cmd().await?;
         let mut child = cmd.spawn().map_err(Error::Launch)?;
         let _signal_guard = signals::ignore();
@@ -94,8 +90,6 @@ impl Child {
     /// Until the first call to [`Spawn::wait`] returns, the parent ignores common termination
     /// signals under the assumption that they're sent to the entire process group.
     pub async fn spawn_with_output(self) -> Result<(Spawn, ChildStdout)> {
-        speak!("$", "{self}");
-
         let (output, stdout_in) = std::io::pipe().map_err(Error::Launch)?;
         let stderr_in = stdout_in.try_clone().map_err(Error::Launch)?;
 
@@ -131,8 +125,6 @@ impl Child {
     /// will not receive keyboard-generated signals even if its output remains connected to a
     /// terminal.
     pub async fn spawn_and_background_after(self, duration: Duration) -> Result<()> {
-        speak!("$", "{self} &");
-
         let mut cmd = self.into_cmd().await?;
         let mut child = cmd.process_group(0).spawn().map_err(Error::Launch)?;
         match tokio::time::timeout(duration, child.wait()).await {
@@ -147,8 +139,6 @@ impl Child {
     /// Nothing special is done with respect to signal handling. This is intended for short-running
     /// children that a user is unlikely to interrupt.
     pub async fn capture_output(self) -> Result<Output> {
-        speak!("$", "{self}");
-
         let mut cmd = self.into_cmd().await?;
         cmd.output().await.map_err(Error::Launch)
     }
