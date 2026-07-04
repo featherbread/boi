@@ -174,30 +174,38 @@ pub async fn render(name: &str, mut spawn: Spawn, output: ChildStdout) -> child:
         .await;
 
     reporter.clear();
-    let summary = ArchiveStatsSummary(Arc::clone(&last_stats));
+
+    let summary = {
+        let stats_summary = ArchiveStatsSummary(Arc::clone(&last_stats));
+        if child_result.is_ok() {
+            format!("Archived {stats_summary}")
+        } else {
+            "Failed to create some archives".to_owned()
+        }
+    };
+
+    let (sigil, message) = match &child_result {
+        Ok(()) => (
+            "✓",
+            format!(
+                "Created archive{suffix}",
+                suffix = duration
+                    .map(|d| format!(" in {d} seconds"))
+                    .unwrap_or_default(),
+            ),
+        ),
+        Err(child::Error::Killed) => ("✗", "Borg terminated abnormally".to_owned()),
+        Err(child::Error::ExitCode(code)) => ("✗", format!("Borg exited with code {code}")),
+        Err(child::Error::Launch(err)) => ("✗", format!("Failed to wait for Borg: {err}")),
+    };
+
     let stats = last_stats.read().unwrap();
-    match &child_result {
-        Ok(()) => {
-            let suffix = duration
-                .map(|d| format!(" in {d} seconds"))
-                .unwrap_or_default();
-            speak!(
-                "✓",
-                "Archived {summary}\n{}\n{}",
-                format!("      ┌ {name} ─ {stats}"),
-                format!("      └ Created archive{suffix}"),
-            );
-        }
-        Err(child::Error::ExitCode(code)) => {
-            speak!("✗", "{stats} • Borg exited with code {code}");
-        }
-        Err(child::Error::Killed) => {
-            speak!("✗", "{stats} • Borg terminated abnormally");
-        }
-        Err(child::Error::Launch(err)) => {
-            speak!("✗", "{stats} • Failed to wait for Borg: {err}");
-        }
-    }
+    speak!(
+        sigil,
+        "{summary}\n{}\n{}",
+        format!("      ┌ {name} ─ {stats}"),
+        format!("      └ {message}"),
+    );
 
     child_result
 }

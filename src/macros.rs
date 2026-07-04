@@ -2,7 +2,7 @@
 
 /// Prints to standard error with basic log formatting and a newline.
 macro_rules! speak {
-    ($sigil:literal, $fmt:literal $(, $($args:tt)* )?) => {{
+    ($sigil:expr, $fmt:literal $(, $($args:tt)* )?) => {{
         use ::std::io::Write;
         let _ = writeln!(
             ::std::io::stderr().lock(),
