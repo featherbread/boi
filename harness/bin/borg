@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+
+cd "$(dirname "${BASH_SOURCE[0]}")" || exit 3
+
+# This awk program emits Borg's JSON lines with delays that roughly simulate
+# the delays in real Borg output (at least for archive creation; checks are way
+# faster than they should be).
+#
+# As a special case, the opening "{" of the final stats object at the end of
+# the create transcripts turns off the delay for the remaining lines.
+awk_src="$(cat <<EOF
+             BEGIN { interval = 1.0; }
+           /^\\{$/ { interval = 0.0; system("sleep 1.0"); }
+/progress_message/ { interval = 0.85; }
+/progress_percent/ { interval = 0.25; }
+/archive_progress/ { interval = 0.15; }
+/log_message/      { interval = 0.10; }
+                   { print \$0; if (interval) system("sleep " interval * factor); }
+EOF
+)"
+
+for arg in "$@"; do
+  case "$arg" in
+    --repository-only) repo_only=1;;
+  esac
+done
+
+case "$BORG_REPO" in
+  *onefake*) time_factor=1.0;;
+  *twofake*) time_factor=1.1;;
+esac
+
+# Not bothering with a nice error message, as this shouldn't happen in practice.
+[[ ${time_factor+_} ]] || exit 4
+
+final_code=0
+
+case "$1" in
+  create)
+    if [[ ${BOI_FULL+_} ]]; then ts_path=create.json
+    else                         ts_path=create-short.json
+    fi;;
+  check)
+    if   [[ ${repo_only+_} ]];   then ts_path=check-repoonly.json
+    elif [[ ${BOI_CORRUPT+_} ]]; then ts_path=check-bitflip.json; final_code=1
+    else                              ts_path=check-full.json
+    fi;;
+  *)
+    exit 5;;  # Again, no nice error, though it's a weaker argument here.
+esac
+
+# awk doesn't seem to respond to SIGINT on its own, so run it in the background
+# and turn SIGINT into SIGTERM. Disable ShellCheck's unused function lint, as
+# it has issues with trap.
+# shellcheck disable=SC2329
+kill_awk() { [[ ${awk_pid+_} ]] && kill "$awk_pid"; }
+trap kill_awk SIGINT
+
+awk -v factor="$time_factor" "$awk_src" "../transcripts/$ts_path" &
+awk_pid=$!
+wait
+
+exit $final_code

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+
+harness_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || exit 3
+
+export PATH="$harness_root/bin:$PATH"
+export BOI_CONFIG_DIR_PATH="$harness_root/config"
+
+exec "$@"
