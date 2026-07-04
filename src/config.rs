@@ -66,9 +66,9 @@ impl Config {
         &self.global
     }
 
-    pub fn one_or_die(&self) -> &RepoConfig {
+    pub fn one_or_die(&self) -> (&str, &RepoConfig) {
         match self.repos.get_index(0) {
-            Some((_, config)) if self.repos.len() == 1 => config,
+            Some((name, config)) if self.repos.len() == 1 => (name, config),
             Some(_) => die!("Found more than one repo in your config; you'll need to pick one."),
             None => die!("Can't find any repos in your config; what do I operate on?"),
         }

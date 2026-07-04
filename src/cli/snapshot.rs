@@ -66,8 +66,8 @@ impl Display for DriverKind {
 
 pub async fn main(args: Args) -> child::Result<()> {
     let config = Config::load_or_die().await;
-    let repo = match &args.repository {
-        Some(name) => config.get_or_die(name),
+    let (name, repo) = match &args.repository {
+        Some(name) => (name.as_str(), config.get_or_die(name)),
         None => config.one_or_die(),
     };
 
@@ -76,7 +76,7 @@ pub async fn main(args: Args) -> child::Result<()> {
     };
 
     let run = async {
-        let backup_spec = format!("{repo}::{sec}", repo = repo.repo_url(), sec = ts.as_secs());
+        let backup_spec = format!("{url}::{sec}", url = repo.repo_url(), sec = ts.as_secs());
         let cmdline = [
             "borg",
             "create",
@@ -94,7 +94,7 @@ pub async fn main(args: Args) -> child::Result<()> {
             .spawn_with_output()
             .await?;
 
-        render(spawn, output).await
+        render(name, spawn, output).await
     };
 
     let result: child::Result<()> = match args.driver {
@@ -109,13 +109,18 @@ pub async fn main(args: Args) -> child::Result<()> {
     Ok(())
 }
 
-pub async fn render(mut spawn: Spawn, output: ChildStdout) -> child::Result<()> {
+pub async fn render(name: &str, mut spawn: Spawn, output: ChildStdout) -> child::Result<()> {
     let last_stats = Arc::new(RwLock::new(ArchiveStats::default()));
 
     let mut reporter = Reporter::new("Waiting for Borg to start");
     reporter.force_style({
         let stats = Arc::clone(&last_stats);
-        ProgressStyle::with_template("[boi] {spinner} {stats} • {wide_msg}")
+        let template = String::from_iter([
+            "[boi] {spinner} Archiving files…\n",
+            &format!("      ┌ {name} ─ {{stats}}\n"),
+            "      └ {wide_msg}",
+        ]);
+        ProgressStyle::with_template(&template)
             .expect("hardcoded ProgressStyle template should be valid")
             .with_key("stats", move |_: &ProgressState, w: &mut dyn fmt::Write| {
                 let _ = write!(w, "{}", stats.read().unwrap());
@@ -163,11 +168,15 @@ pub async fn render(mut spawn: Spawn, output: ChildStdout) -> child::Result<()> 
     let stats = last_stats.read().unwrap();
     match &child_result {
         Ok(()) => {
-            if let Some(duration) = duration {
-                speak!("✓", "{stats} • Created archive in {duration} seconds");
-            } else {
-                speak!("✓", "{stats} • Created archive");
-            }
+            let suffix = duration
+                .map(|d| format!(" in {d} seconds"))
+                .unwrap_or_default();
+            speak!(
+                "✓",
+                "Archived files\n{}\n{}",
+                format!("      ┌ {name} ─ {stats}"),
+                format!("      └ Created archive{suffix}"),
+            );
         }
         Err(child::Error::ExitCode(code)) => {
             speak!("✗", "{stats} • Borg exited with code {code}");

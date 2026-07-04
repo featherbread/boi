@@ -22,7 +22,7 @@ pub async fn main(args: Args) -> child::Result<()> {
     let config = Config::load_or_die().await;
     let repo = match &args.repository {
         Some(name) => config.get_or_die(name),
-        None => config.one_or_die(),
+        None => config.one_or_die().1,
     };
 
     let mut cmdline = vec!["borg", "check", "-v", "--progress", "--log-json"];
