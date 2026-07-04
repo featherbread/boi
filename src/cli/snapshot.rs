@@ -2,6 +2,7 @@ use std::env;
 use std::fmt;
 use std::fmt::Display;
 use std::ops::ControlFlow;
+use std::sync::LazyLock;
 use std::sync::{Arc, RwLock};
 use std::time::SystemTime;
 
@@ -110,18 +111,31 @@ pub async fn main(args: Args) -> child::Result<()> {
     Ok(())
 }
 
+fn reporter_style() -> ProgressStyle {
+    static STYLE: LazyLock<ProgressStyle> = LazyLock::new(|| {
+        ProgressStyle::with_template(&String::from_iter([
+            "[boi] {spinner} {summary}\n",
+            "      ┌ {name} ─ {stats}\n",
+            "      └ {wide_msg}",
+        ]))
+        .expect("hardcoded ProgressStyle template should be valid")
+    });
+
+    STYLE.clone()
+}
+
 pub async fn render(name: &str, mut spawn: Spawn, output: ChildStdout) -> child::Result<()> {
     let last_stats = Arc::new(RwLock::new(ArchiveStats::default()));
 
     let mut reporter = Reporter::new("Waiting for Borg to start");
-    reporter.force_style({
-        let template = String::from_iter([
-            "[boi] {spinner} {summary}\n",
-            &format!("      ┌ {name} ─ {{stats}}\n"),
-            "      └ {wide_msg}",
-        ]);
-        ProgressStyle::with_template(&template)
-            .expect("hardcoded ProgressStyle template should be valid")
+    reporter.force_style(
+        reporter_style()
+            .with_key("name", {
+                let name = name.to_owned();
+                move |_: &ProgressState, w: &mut dyn fmt::Write| {
+                    let _ = write!(w, "{name}");
+                }
+            })
             .with_key("summary", {
                 let summary = ArchiveStatsSummary(Arc::clone(&last_stats));
                 move |_: &ProgressState, w: &mut dyn fmt::Write| {
@@ -133,8 +147,8 @@ pub async fn render(name: &str, mut spawn: Spawn, output: ChildStdout) -> child:
                 move |_: &ProgressState, w: &mut dyn fmt::Write| {
                     let _ = write!(w, "{}", stats.read().unwrap());
                 }
-            })
-    });
+            }),
+    );
 
     let mut archive_complete_event = None;
     let mut event_stream = borg::stream(output);
