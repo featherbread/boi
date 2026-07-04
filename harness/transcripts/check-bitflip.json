@@ -1,0 +1,22 @@
+{"type": "log_message", "time": 1774401146.998883, "message": "Starting repository check", "levelname": "INFO", "name": "borg.repository"}
+{"message": "Checking segments 0.0%", "current": 1, "total": 6, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1774401146.999959}
+{"message": "Checking segments 16.7%", "current": 2, "total": 6, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1774401147.000034}
+{"message": "Checking segments 33.3%", "current": 3, "total": 6, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1774401147.000086}
+{"type": "log_message", "time": 1774401147.000173, "message": "Data integrity error: Segment entry checksum mismatch [segment 2, offset 8]", "levelname": "ERROR", "name": "borg.repository"}
+{"message": "Checking segments 50.0%", "current": 4, "total": 6, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1774401147.000208}
+{"message": "Checking segments 66.7%", "current": 5, "total": 6, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1774401147.000282}
+{"message": "Checking segments 83.3%", "current": 6, "total": 6, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1774401147.0003252}
+{"type": "log_message", "time": 1774401147.000349, "message": "finished segment check at segment 5", "levelname": "INFO", "name": "borg.repository"}
+{"operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": true, "time": 1774401147.001079}
+{"type": "log_message", "time": 1774401147.0011032, "message": "Starting repository index check", "levelname": "INFO", "name": "borg.repository"}
+{"type": "log_message", "time": 1774401147.001131, "message": "Index object count mismatch.", "levelname": "ERROR", "name": "borg.repository"}
+{"type": "log_message", "time": 1774401147.001148, "message": "committed index: 8 objects", "levelname": "ERROR", "name": "borg.repository"}
+{"type": "log_message", "time": 1774401147.001164, "message": "rebuilt index:   1 objects", "levelname": "ERROR", "name": "borg.repository"}
+{"type": "log_message", "time": 1774401147.001185, "message": "ID: 1111111111111111111111111111111111111111111111111111111111111111 rebuilt index: <not found>      committed index: (2, 36686)      ", "levelname": "ERROR", "name": "borg.repository"}
+{"type": "log_message", "time": 1774401147.001204, "message": "ID: 2222222222222222222222222222222222222222222222222222222222222222 rebuilt index: <not found>      committed index: (2, 42103)      ", "levelname": "ERROR", "name": "borg.repository"}
+{"type": "log_message", "time": 1774401147.0012171, "message": "ID: 3333333333333333333333333333333333333333333333333333333333333333 rebuilt index: <not found>      committed index: (2, 47493)      ", "levelname": "ERROR", "name": "borg.repository"}
+{"type": "log_message", "time": 1774401147.001229, "message": "ID: 4444444444444444444444444444444444444444444444444444444444444444 rebuilt index: <not found>      committed index: (2, 8)          ", "levelname": "ERROR", "name": "borg.repository"}
+{"type": "log_message", "time": 1774401147.0012412, "message": "ID: 5555555555555555555555555555555555555555555555555555555555555555 rebuilt index: <not found>      committed index: (2, 45341)      ", "levelname": "ERROR", "name": "borg.repository"}
+{"type": "log_message", "time": 1774401147.0012538, "message": "ID: 6666666666666666666666666666666666666666666666666666666666666666 rebuilt index: <not found>      committed index: (2, 43889)      ", "levelname": "ERROR", "name": "borg.repository"}
+{"type": "log_message", "time": 1774401147.001266, "message": "ID: 7777777777777777777777777777777777777777777777777777777777777777 rebuilt index: <not found>      committed index: (2, 46814)      ", "levelname": "ERROR", "name": "borg.repository"}
+{"type": "log_message", "time": 1774401147.001278, "message": "Finished full repository check, errors found.", "levelname": "ERROR", "name": "borg.repository"}

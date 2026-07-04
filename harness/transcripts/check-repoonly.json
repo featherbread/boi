@@ -1,0 +1,47 @@
+{"type": "log_message", "time": 1772417083.553911, "message": "Remote: Starting repository check", "levelname": "INFO", "name": "borg.repository"}
+{"message": "Remote: Checking segments 0.0%", "current": 1, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417083.6201484}
+{"message": "Remote: Checking segments 2.4%", "current": 2, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417084.068808}
+{"message": "Remote: Checking segments 4.9%", "current": 3, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417084.1231496}
+{"message": "Remote: Checking segments 7.3%", "current": 4, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417084.8384411}
+{"message": "Remote: Checking segments 9.8%", "current": 5, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417085.0808115}
+{"message": "Remote: Checking segments 12.2%", "current": 6, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417087.8055162}
+{"message": "Remote: Checking segments 14.6%", "current": 7, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417090.194424}
+{"message": "Remote: Checking segments 17.1%", "current": 8, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417094.9005349}
+{"message": "Remote: Checking segments 19.5%", "current": 9, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417098.160078}
+{"message": "Remote: Checking segments 22.0%", "current": 10, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417098.2781303}
+{"message": "Remote: Checking segments 24.4%", "current": 11, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417102.5735993}
+{"message": "Remote: Checking segments 26.8%", "current": 12, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417102.9804125}
+{"message": "Remote: Checking segments 29.3%", "current": 13, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417103.0692818}
+{"message": "Remote: Checking segments 31.7%", "current": 14, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417106.6232536}
+{"message": "Remote: Checking segments 34.1%", "current": 15, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417107.2567618}
+{"message": "Remote: Checking segments 36.6%", "current": 16, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417108.1635253}
+{"message": "Remote: Checking segments 39.0%", "current": 17, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417113.8377967}
+{"message": "Remote: Checking segments 41.5%", "current": 18, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417116.5167024}
+{"message": "Remote: Checking segments 43.9%", "current": 19, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417116.5522718}
+{"message": "Remote: Checking segments 46.3%", "current": 20, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417120.1258314}
+{"message": "Remote: Checking segments 48.8%", "current": 21, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417121.011047}
+{"message": "Remote: Checking segments 51.2%", "current": 22, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417122.8377004}
+{"message": "Remote: Checking segments 53.7%", "current": 23, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417126.2562516}
+{"message": "Remote: Checking segments 56.1%", "current": 24, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417130.856978}
+{"message": "Remote: Checking segments 58.5%", "current": 25, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417134.1250896}
+{"message": "Remote: Checking segments 61.0%", "current": 26, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417137.4191608}
+{"message": "Remote: Checking segments 63.4%", "current": 27, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417141.0069323}
+{"message": "Remote: Checking segments 65.9%", "current": 28, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417143.681517}
+{"message": "Remote: Checking segments 68.3%", "current": 29, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417144.9858663}
+{"message": "Remote: Checking segments 70.7%", "current": 30, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417148.6446166}
+{"message": "Remote: Checking segments 73.2%", "current": 31, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417148.9631202}
+{"message": "Remote: Checking segments 75.6%", "current": 32, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417150.1078222}
+{"message": "Remote: Checking segments 78.0%", "current": 33, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417152.3890374}
+{"message": "Remote: Checking segments 80.5%", "current": 34, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417152.405905}
+{"message": "Remote: Checking segments 82.9%", "current": 35, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417158.3254747}
+{"message": "Remote: Checking segments 85.4%", "current": 36, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417166.8365736}
+{"message": "Remote: Checking segments 87.8%", "current": 37, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417170.886193}
+{"message": "Remote: Checking segments 90.2%", "current": 38, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417172.0664744}
+{"message": "Remote: Checking segments 92.7%", "current": 39, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417172.073652}
+{"message": "Remote: Checking segments 95.1%", "current": 40, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417172.080978}
+{"message": "Remote: Checking segments 97.6%", "current": 41, "total": 41, "info": null, "operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": false, "time": 1772417172.0821216}
+{"type": "log_message", "time": 1772417172.082717, "message": "Remote: finished segment check at segment 3946", "levelname": "INFO", "name": "borg.repository"}
+{"operation": 1, "msgid": "repository.check", "type": "progress_percent", "finished": true, "time": 1772417172.1207216}
+{"type": "log_message", "time": 1772417172.1211753, "message": "Remote: Starting repository index check", "levelname": "INFO", "name": "borg.repository"}
+{"type": "log_message", "time": 1772417172.1215227, "message": "Remote: Index object count match.", "levelname": "INFO", "name": "borg.repository"}
+{"type": "log_message", "time": 1772417172.8558836, "message": "Remote: Finished full repository check, no problems found.", "levelname": "INFO", "name": "borg.repository"}
