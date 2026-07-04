@@ -9,6 +9,7 @@ use futures::StreamExt;
 use indicatif::{ProgressState, ProgressStyle};
 use tokio::process::ChildStdout;
 
+use crate::borg::ArchiveStatsSummary;
 use crate::borg::{self, ArchiveStats, Event, Progress};
 use crate::child::{self, Child, Spawn};
 use crate::config::Config;
@@ -114,16 +115,24 @@ pub async fn render(name: &str, mut spawn: Spawn, output: ChildStdout) -> child:
 
     let mut reporter = Reporter::new("Waiting for Borg to start");
     reporter.force_style({
-        let stats = Arc::clone(&last_stats);
         let template = String::from_iter([
-            "[boi] {spinner} Archiving files…\n",
+            "[boi] {spinner} {summary}\n",
             &format!("      ┌ {name} ─ {{stats}}\n"),
             "      └ {wide_msg}",
         ]);
         ProgressStyle::with_template(&template)
             .expect("hardcoded ProgressStyle template should be valid")
-            .with_key("stats", move |_: &ProgressState, w: &mut dyn fmt::Write| {
-                let _ = write!(w, "{}", stats.read().unwrap());
+            .with_key("summary", {
+                let summary = ArchiveStatsSummary(Arc::clone(&last_stats));
+                move |_: &ProgressState, w: &mut dyn fmt::Write| {
+                    let _ = write!(w, "Archiving {summary}…");
+                }
+            })
+            .with_key("stats", {
+                let stats = Arc::clone(&last_stats);
+                move |_: &ProgressState, w: &mut dyn fmt::Write| {
+                    let _ = write!(w, "{}", stats.read().unwrap());
+                }
             })
     });
 
@@ -165,6 +174,7 @@ pub async fn render(name: &str, mut spawn: Spawn, output: ChildStdout) -> child:
         .await;
 
     reporter.clear();
+    let summary = ArchiveStatsSummary(Arc::clone(&last_stats));
     let stats = last_stats.read().unwrap();
     match &child_result {
         Ok(()) => {
@@ -173,7 +183,7 @@ pub async fn render(name: &str, mut spawn: Spawn, output: ChildStdout) -> child:
                 .unwrap_or_default();
             speak!(
                 "✓",
-                "Archived files\n{}\n{}",
+                "Archived {summary}\n{}\n{}",
                 format!("      ┌ {name} ─ {stats}"),
                 format!("      └ Created archive{suffix}"),
             );
