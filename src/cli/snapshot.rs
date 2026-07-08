@@ -2,19 +2,17 @@ use std::env;
 use std::fmt;
 use std::fmt::Display;
 use std::ops::ControlFlow;
-use std::sync::LazyLock;
 use std::sync::{Arc, RwLock};
 use std::time::SystemTime;
 
 use futures::StreamExt;
-use indicatif::{ProgressState, ProgressStyle};
+use indicatif::HumanBytes;
 use tokio::process::ChildStdout;
 
-use crate::borg::ArchiveStatsSummary;
 use crate::borg::{self, ArchiveStats, Event, Progress};
 use crate::child::{self, Child, Spawn};
 use crate::config::Config;
-use crate::reporting::Reporter;
+use crate::reporting2::{ReporterBuilder, Widget};
 
 #[cfg(boi_has_driver = "apfs")]
 use crate::snapshot::driver_apfs;
@@ -111,44 +109,21 @@ pub async fn main(args: Args) -> child::Result<()> {
     Ok(())
 }
 
-fn reporter_style() -> ProgressStyle {
-    static STYLE: LazyLock<ProgressStyle> = LazyLock::new(|| {
-        ProgressStyle::with_template(&String::from_iter([
-            "[boi] {spinner} {summary}\n",
-            "      ┌ {name} ─ {stats}\n",
-            "      └ {wide_msg}",
-        ]))
-        .expect("hardcoded ProgressStyle template should be valid")
-    });
-
-    STYLE.clone()
-}
-
 pub async fn render(name: &str, mut spawn: Spawn, output: ChildStdout) -> child::Result<()> {
     let last_stats = Arc::new(RwLock::new(ArchiveStats::default()));
 
-    let mut reporter = Reporter::new("Waiting for Borg to start");
-    reporter.force_style(
-        reporter_style()
-            .with_key("name", {
-                let name = name.to_owned();
-                move |_: &ProgressState, w: &mut dyn fmt::Write| {
-                    let _ = write!(w, "{name}");
-                }
-            })
-            .with_key("summary", {
-                let summary = ArchiveStatsSummary(Arc::clone(&last_stats));
-                move |_: &ProgressState, w: &mut dyn fmt::Write| {
-                    let _ = write!(w, "Archiving {summary}…");
-                }
-            })
-            .with_key("stats", {
-                let stats = Arc::clone(&last_stats);
-                move |_: &ProgressState, w: &mut dyn fmt::Write| {
-                    let _ = write!(w, "{}", stats.read().unwrap());
-                }
-            }),
+    let mut builder = ReporterBuilder::new(Widget::new(ArchiveStatsSummaryRunning(Arc::clone(
+        &last_stats,
+    ))));
+
+    builder.register_repo(
+        name.to_owned(),
+        Widget::new(ArchiveStatsDisplay(Arc::clone(&last_stats))),
     );
+
+    let mut reporter_set = builder.finish();
+    let mut reporter_repos = reporter_set.repos();
+    let reporter = reporter_repos.get_mut(0).unwrap();
 
     let mut archive_complete_event = None;
     let mut event_stream = borg::stream(output);
@@ -187,11 +162,9 @@ pub async fn render(name: &str, mut spawn: Spawn, output: ChildStdout) -> child:
         .wait_for_spawn(&mut spawn, "Waiting for Borg to exit")
         .await;
 
-    reporter.clear();
-
     let summary = {
-        let stats_summary = ArchiveStatsSummary(Arc::clone(&last_stats));
         if child_result.is_ok() {
+            let stats_summary = ArchiveStatsSummary(&last_stats.read().unwrap());
             format!("Archived {stats_summary}")
         } else {
             "Failed to create some archives".to_owned()
@@ -213,13 +186,45 @@ pub async fn render(name: &str, mut spawn: Spawn, output: ChildStdout) -> child:
         Err(child::Error::Launch(err)) => ("✗", format!("Failed to wait for Borg: {err}")),
     };
 
-    let stats = last_stats.read().unwrap();
-    speak!(
-        sigil,
-        "{summary}\n{}\n{}",
-        format!("      ┌ {name} ─ {stats}"),
-        format!("      └ {message}"),
-    );
+    reporter.finish(sigil, message);
+    reporter_set.finish(sigil, summary);
 
     child_result
+}
+
+pub struct ArchiveStatsDisplay(Arc<RwLock<ArchiveStats>>);
+
+impl Display for ArchiveStatsDisplay {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let stats = self.0.read().unwrap();
+        write!(f, "{stats}")
+    }
+}
+
+pub struct ArchiveStatsSummaryRunning(Arc<RwLock<ArchiveStats>>);
+
+impl Display for ArchiveStatsSummaryRunning {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let summary = ArchiveStatsSummary(&self.0.read().unwrap());
+        write!(f, "Archiving {summary}…")
+    }
+}
+
+// TODO: Summarize multiple ArchiveStats, not just one.
+pub struct ArchiveStatsSummary<'a>(&'a ArchiveStats);
+
+impl<'a> Display for ArchiveStatsSummary<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.0.nfiles == 0 && self.0.original_size == 0 {
+            write!(f, "files")
+        } else {
+            write!(
+                f,
+                "{orig} in {nfiles} file{s}",
+                orig = HumanBytes(self.0.original_size),
+                nfiles = self.0.nfiles,
+                s = if self.0.nfiles == 1 { "" } else { "s" },
+            )
+        }
+    }
 }

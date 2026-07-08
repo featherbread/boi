@@ -6,7 +6,7 @@ use tokio::process::ChildStdout;
 use crate::borg::{self, Event, LogLevel, Progress};
 use crate::child::{self, Child, Spawn};
 use crate::config::Config;
-use crate::reporting::Reporter;
+use crate::reporting2::{ReporterBuilder, Widget};
 
 #[derive(clap::Args)]
 pub struct Args {
@@ -20,9 +20,9 @@ pub struct Args {
 
 pub async fn main(args: Args) -> child::Result<()> {
     let config = Config::load_or_die().await;
-    let repo = match &args.repository {
-        Some(name) => config.get_or_die(name),
-        None => config.one_or_die().1,
+    let (name, repo) = match &args.repository {
+        Some(name) => (name.as_str(), config.get_or_die(name)),
+        None => config.one_or_die(),
     };
 
     let mut cmdline = vec!["borg", "check", "-v", "--progress", "--log-json"];
@@ -34,11 +34,18 @@ pub async fn main(args: Args) -> child::Result<()> {
         .spawn_with_output()
         .await?;
 
-    render(spawn, output).await
+    render(name, spawn, output).await
 }
 
-async fn render(mut spawn: Spawn, output: ChildStdout) -> child::Result<()> {
-    let mut reporter = Reporter::new("Waiting for Borg");
+async fn render(name: &str, mut spawn: Spawn, output: ChildStdout) -> child::Result<()> {
+    let mut builder = ReporterBuilder::new(Widget::from_message("Checking repositories…"));
+
+    builder.register_repo(name.to_owned(), Widget::from_message(""));
+
+    let mut reporter_set = builder.finish();
+    let mut reporter_repos = reporter_set.repos();
+    let reporter = reporter_repos.get_mut(0).unwrap();
+
     let mut event_stream = borg::stream(output);
     while let Some(event) = event_stream.next().await {
         match event {
@@ -62,21 +69,19 @@ async fn render(mut spawn: Spawn, output: ChildStdout) -> child::Result<()> {
         .wait_for_spawn(&mut spawn, "Waiting for Borg to exit")
         .await;
 
-    reporter.clear();
-    match &child_result {
-        Ok(()) => {
-            speak!("✓", "Repository is valid");
-        }
-        Err(child::Error::ExitCode(code)) => {
-            speak!("✗", "Borg exited with code {code}");
-        }
-        Err(child::Error::Killed) => {
-            speak!("✗", "Borg terminated abnormally");
-        }
-        Err(child::Error::Launch(err)) => {
-            speak!("✗", "Failed to wait for Borg: {err}");
-        }
-    }
+    let summary = match &child_result {
+        Ok(_) => "Confirmed all repositories are healthy",
+        Err(_) => "Found issues in repositories",
+    };
+    let (sigil, message) = match &child_result {
+        Ok(()) => ("✓", "Repository is valid".to_owned()),
+        Err(child::Error::ExitCode(code)) => ("✗", format!("Borg exited with code {code}")),
+        Err(child::Error::Killed) => ("✗", "Borg terminated abnormally".to_owned()),
+        Err(child::Error::Launch(err)) => ("✗", format!("Failed to wait for Borg: {err}")),
+    };
+
+    reporter.finish(sigil, message);
+    reporter_set.finish(sigil, summary);
 
     child_result
 }

@@ -10,7 +10,7 @@ mod child;
 mod cli;
 mod config;
 mod json;
-mod reporting;
+mod reporting2;
 mod signals;
 mod snapshot;
 

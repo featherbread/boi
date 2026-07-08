@@ -1,5 +1,4 @@
 use std::fmt::{self, Display};
-use std::sync::{Arc, RwLock};
 
 use futures::{Stream, StreamExt, stream};
 use indicatif::HumanBytes;
@@ -169,26 +168,5 @@ impl Display for ArchiveStats {
             comp = HumanBytes(self.compressed_size),
             ddup = HumanBytes(self.deduplicated_size),
         )
-    }
-}
-
-// TODO: Take the max of multiple backups, and as part of that write a better API than a pub field.
-#[derive(Clone)]
-pub struct ArchiveStatsSummary(pub Arc<RwLock<ArchiveStats>>);
-
-impl Display for ArchiveStatsSummary {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let stats = self.0.read().unwrap();
-        if stats.nfiles == 0 && stats.original_size == 0 {
-            write!(f, "files")
-        } else {
-            write!(
-                f,
-                "{orig} in {nfiles} file{s}",
-                orig = HumanBytes(stats.original_size),
-                nfiles = stats.nfiles,
-                s = if stats.nfiles == 1 { "" } else { "s" },
-            )
-        }
     }
 }

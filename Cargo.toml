@@ -13,6 +13,7 @@ upload = ["dep:url"]
 
 [dependencies]
 clap_complete = "4"
+console = "0.16"
 futures = "0.3"
 libc = "0.2"
 serde = "1"
@@ -42,6 +43,7 @@ features = [
 version = "0.18"
 default-features = false
 features = [
+    "in_memory",
     "unicode-width",
 ]
 
