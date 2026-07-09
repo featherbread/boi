@@ -6,7 +6,7 @@ use tokio::process::ChildStdout;
 use crate::borg::{self, Event, LogLevel, Progress};
 use crate::child::{self, Child, Spawn};
 use crate::config::Config;
-use crate::reporting::{ReporterBuilder, Widget};
+use crate::reporting::{ReporterSet, Widget};
 
 #[derive(clap::Args)]
 pub struct Args {
@@ -38,13 +38,8 @@ pub async fn main(args: Args) -> child::Result<()> {
 }
 
 async fn render(name: &str, mut spawn: Spawn, output: ChildStdout) -> child::Result<()> {
-    let mut builder = ReporterBuilder::new(Widget::from_message("Checking repositories…"));
-
-    builder.register_repo(name.to_owned(), Widget::from_message(""));
-
-    let mut reporter_set = builder.finish();
-    let mut reporter_repos = reporter_set.repos();
-    let reporter = reporter_repos.get_mut(0).unwrap();
+    let mut reporter_set = ReporterSet::new(Widget::from_message("Checking repositories…"));
+    let mut reporter = reporter_set.add_repo(name.to_owned(), Widget::from_message(""));
 
     let mut event_stream = borg::stream(output);
     while let Some(event) = event_stream.next().await {
@@ -80,7 +75,7 @@ async fn render(name: &str, mut spawn: Spawn, output: ChildStdout) -> child::Res
         Err(child::Error::Launch(err)) => ("✗", format!("Failed to wait for Borg: {err}")),
     };
 
-    reporter.finish(sigil, message);
+    reporter.finish_once(sigil, message);
     reporter_set.finish(sigil, summary);
 
     child_result

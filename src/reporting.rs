@@ -3,7 +3,7 @@ use std::fmt::{self, Display};
 use std::io::Write;
 use std::mem::{self, Discriminant};
 use std::ops::ControlFlow;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::{self, Duration};
 
 use console::Term;
@@ -15,73 +15,48 @@ use crate::child;
 
 const TICK_INTERVAL: Duration = Duration::from_millis(100);
 
-pub struct ReporterBuilder {
-    header: Widget,
-    repos: Vec<(String, Widget)>,
+pub struct ReporterSet {
+    mp: MultiProgress,
+    head: HeadReporter,
+    repos: Vec<RepoReporter>,
 }
 
-impl ReporterBuilder {
+impl ReporterSet {
     pub fn new(header: Widget) -> Self {
+        let mp = MultiProgress::new();
+        let head_bar = mp.add(ProgressBar::no_length());
+        head_bar.enable_steady_tick(TICK_INTERVAL);
+
         Self {
-            header,
+            mp,
+            head: HeadReporter::new_with_bar(head_bar, header),
             repos: Vec::new(),
         }
     }
 
-    pub fn register_repo(&mut self, name: String, header: Widget) {
-        self.repos.push((name, header));
-    }
+    pub fn add_repo(&mut self, name: String, header: Widget) -> RepoReporter {
+        let bar = self.mp.add(ProgressBar::no_length());
+        bar.enable_steady_tick(TICK_INTERVAL);
 
-    pub fn finish(self) -> ReporterSet {
-        let mp = MultiProgress::new();
+        let mut repo = RepoReporter(Arc::new(RwLock::new(RepoReporterState {
+            mp: self.mp.clone(),
+            bar,
+            name,
+            sigil: None,
+            header,
+            report: Report::Message("".into()),
+            did_once: false,
+            current_style: None,
+        })));
 
-        let head_bar = mp.add(ProgressBar::no_length());
-        head_bar.enable_steady_tick(TICK_INTERVAL);
-        let head = HeadReporter::new_with_bar(head_bar, self.header);
-
-        let repos = self
-            .repos
-            .into_iter()
-            .map(|(name, header)| {
-                let bar = mp.add(ProgressBar::no_length());
-                bar.enable_steady_tick(TICK_INTERVAL);
-                let mut repo = RepoReporter {
-                    name,
-                    sigil: None,
-                    header,
-                    report: Report::Message("".into()),
-                    mp: mp.clone(),
-                    bar,
-                    current_style: None,
-                    did_once: false,
-                };
-                repo.post_message("Starting up…");
-                repo
-            })
-            .collect();
-
-        ReporterSet { head, repos, mp }
-    }
-}
-
-pub struct ReporterSet {
-    head: HeadReporter,
-    repos: Vec<RepoReporter>,
-
-    mp: MultiProgress,
-}
-
-impl ReporterSet {
-    pub fn repos(&mut self) -> Vec<&mut RepoReporter> {
-        self.repos.iter_mut().collect()
+        repo.post_message("Starting up…");
+        repo
     }
 
     pub fn finish(mut self, sigil: &'static str, msg: impl Into<Cow<'static, str>>) {
         self.head.finish(sigil, msg);
         for mut repo in self.repos {
-            if !repo.is_finished() {
-                repo.finish("⚠", "Final status unknown.");
-            }
+            repo.finish_once("⚠", "Final status unknown.");
         }
 
         let _ = self.mp.clear();
@@ -97,10 +72,9 @@ impl ReporterSet {
 }
 
 struct HeadReporter {
+    bar: ProgressBar,
     sigil: Option<&'static str>,
     header: Widget,
-
-    bar: ProgressBar,
 }
 
 impl HeadReporter {
@@ -140,16 +114,20 @@ impl HeadReporter {
 
 const DEFAULT_REPO_SIGIL: &str = "─";
 
-pub struct RepoReporter {
+#[derive(Clone)]
+pub struct RepoReporter(Arc<RwLock<RepoReporterState>>);
+
+pub struct RepoReporterState {
+    mp: MultiProgress,
+    bar: ProgressBar,
+
     name: String,
     sigil: Option<&'static str>,
     header: Widget,
     report: Report,
 
-    mp: MultiProgress,
-    bar: ProgressBar,
-    current_style: Option<Discriminant<Report>>,
     did_once: bool,
+    current_style: Option<Discriminant<Report>>,
 }
 
 enum Report {
@@ -159,23 +137,27 @@ enum Report {
 
 impl RepoReporter {
     pub fn post_message(&mut self, msg: impl Into<Cow<'static, str>>) {
-        self.report = Report::Message(msg.into());
-        self.refresh_bar();
+        let mut me = self.0.write().unwrap();
+        me.report = Report::Message(msg.into());
+        me.refresh_bar();
     }
 
     pub fn post_progress(&mut self, progress: ProgressPercent) {
-        self.report = Report::Progress(progress);
-        self.refresh_bar();
+        let mut me = self.0.write().unwrap();
+        me.report = Report::Progress(progress);
+        me.refresh_bar();
     }
 
     pub fn suspend(&mut self, f: impl FnOnce()) {
-        self.mp.suspend(f);
+        let me = self.0.read().unwrap();
+        me.mp.suspend(f);
     }
 
     pub fn suspend_once(&mut self, f: impl FnOnce()) {
-        if !self.did_once {
-            self.mp.suspend(f);
-            self.did_once = true;
+        let mut me = self.0.write().unwrap();
+        if !me.did_once {
+            me.mp.suspend(f);
+            me.did_once = true;
         }
     }
 
@@ -213,17 +195,19 @@ impl RepoReporter {
         }
     }
 
-    pub fn finish(&mut self, sigil: &'static str, msg: impl Into<Cow<'static, str>>) {
-        self.sigil = Some(sigil);
-        self.current_style = None; // Force a restyle of the bar.
-        self.post_message(msg);
-        self.bar.finish();
+    pub fn finish_once(&mut self, sigil: &'static str, msg: impl Into<Cow<'static, str>>) {
+        let mut me = self.0.write().unwrap();
+        if me.sigil.is_none() {
+            me.sigil = Some(sigil);
+            me.report = Report::Message(msg.into());
+            me.current_style = None; // Force a restyle of the bar.
+            me.refresh_bar();
+            me.bar.finish();
+        }
     }
+}
 
-    fn is_finished(&self) -> bool {
-        self.sigil.is_some()
-    }
-
+impl RepoReporterState {
     fn refresh_bar(&mut self) {
         let want_style = mem::discriminant(&self.report);
         if self.current_style != Some(want_style) {
