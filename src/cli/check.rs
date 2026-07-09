@@ -1,12 +1,11 @@
 use std::ops::ControlFlow;
 
 use futures::StreamExt;
-use tokio::process::ChildStdout;
 
 use crate::borg::{self, Event, LogLevel, Progress};
-use crate::child::{self, Child, Spawn};
-use crate::config::Config;
-use crate::reporting::Reporter;
+use crate::child::{self, Child};
+use crate::config::{Config, RepoConfig};
+use crate::reporting::{RepoReporter, ReporterSet, Widget};
 
 #[derive(clap::Args)]
 pub struct Args {
@@ -20,25 +19,56 @@ pub struct Args {
 
 pub async fn main(args: Args) -> child::Result<()> {
     let config = Config::load_or_die().await;
-    let repo = match &args.repository {
-        Some(name) => config.get_or_die(name),
-        None => config.one_or_die().1,
+    let repos = match &args.repository {
+        Some(name) => vec![(name.as_str(), config.get_or_die(name))],
+        None => config.repos().collect(),
     };
 
+    let mut reporter_set = ReporterSet::new(Widget::from_message("Checking repositories…"));
+
+    let spawns: Vec<_> = repos
+        .into_iter()
+        .map(|(name, repo)| {
+            let reporter = reporter_set.add_repo(name.to_owned(), Widget::from_message(""));
+            tokio::spawn(run(repo.clone(), reporter, args.repository_only))
+        })
+        .collect();
+
+    let mut child_err = None;
+    for spawn in spawns {
+        let result = spawn.await.unwrap();
+        if let (Err(err), None) = (result, &mut child_err) {
+            child_err = Some(err);
+        }
+    }
+
+    match child_err {
+        None => {
+            reporter_set.finish("✓", "Confirmed all repositories are valid");
+            Ok(())
+        }
+        Some(err) => {
+            reporter_set.finish("✗", "Found issues in repositories");
+            Err(err)
+        }
+    }
+}
+
+async fn run(
+    repo: RepoConfig,
+    mut reporter: RepoReporter,
+    repository_only: bool,
+) -> child::Result<()> {
     let mut cmdline = vec!["borg", "check", "-v", "--progress", "--log-json"];
-    if args.repository_only {
+    if repository_only {
         cmdline.push("--repository-only");
     }
-    let (spawn, output) = Child::from_cmdline(&cmdline)
-        .for_borg_repo(repo)
+
+    let (mut spawn, output) = Child::from_cmdline(&cmdline)
+        .for_borg_repo(&repo)
         .spawn_with_output()
         .await?;
 
-    render(spawn, output).await
-}
-
-async fn render(mut spawn: Spawn, output: ChildStdout) -> child::Result<()> {
-    let mut reporter = Reporter::new("Waiting for Borg");
     let mut event_stream = borg::stream(output);
     while let Some(event) = event_stream.next().await {
         match event {
@@ -62,21 +92,13 @@ async fn render(mut spawn: Spawn, output: ChildStdout) -> child::Result<()> {
         .wait_for_spawn(&mut spawn, "Waiting for Borg to exit")
         .await;
 
-    reporter.clear();
-    match &child_result {
-        Ok(()) => {
-            speak!("✓", "Repository is valid");
-        }
-        Err(child::Error::ExitCode(code)) => {
-            speak!("✗", "Borg exited with code {code}");
-        }
-        Err(child::Error::Killed) => {
-            speak!("✗", "Borg terminated abnormally");
-        }
-        Err(child::Error::Launch(err)) => {
-            speak!("✗", "Failed to wait for Borg: {err}");
-        }
-    }
+    let (sigil, message) = match &child_result {
+        Ok(()) => ("✓", "Repository is valid".to_owned()),
+        Err(child::Error::ExitCode(code)) => ("✗", format!("Borg exited with code {code}")),
+        Err(child::Error::Killed) => ("✗", "Borg terminated abnormally".to_owned()),
+        Err(child::Error::Launch(err)) => ("✗", format!("Failed to wait for Borg: {err}")),
+    };
 
+    reporter.finish_once(sigil, message);
     child_result
 }
