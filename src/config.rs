@@ -26,7 +26,7 @@ pub struct GlobalConfig {
     timezone: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct RepoConfig {
     /// The repository URL, i.e. `$BORG_REPO`; see
     /// https://borgbackup.readthedocs.io/en/stable/usage/general.html#repository-urls.
@@ -93,6 +93,10 @@ impl Config {
 
     pub fn global(&self) -> &GlobalConfig {
         &self.global
+    }
+
+    pub fn repos(&self) -> impl Iterator<Item = (&str, &RepoConfig)> {
+        self.repos.iter().map(|(name, repo)| (name.as_str(), repo))
     }
 
     pub fn one_or_die(&self) -> (&str, &RepoConfig) {
