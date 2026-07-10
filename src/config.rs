@@ -126,15 +126,15 @@ impl GlobalConfig {
 }
 
 impl RepoConfig {
-    pub fn env(&self) -> impl Iterator<Item = (&'static str, String)> {
+    pub fn env(&self) -> impl Iterator<Item = (&'static str, &str)> {
         IntoIterator::into_iter([
-            ("BORG_REPO", self.repo_url.clone()),
-            ("BORG_PASSCOMMAND", self.password_command.clone()),
+            ("BORG_REPO", self.repo_url.as_str()),
+            ("BORG_PASSCOMMAND", self.password_command.as_str()),
         ])
         .chain(
             self.remote_path
-                .as_ref()
-                .map(|path| ("BORG_REMOTE_PATH", path.clone())),
+                .as_deref()
+                .map(|path| ("BORG_REMOTE_PATH", path)),
         )
     }
 
