@@ -9,8 +9,8 @@ use crate::reporting::{RepoReporter, ReporterSet, Widget};
 
 #[derive(clap::Args)]
 pub struct Args {
-    /// The repository to work on
-    repository: Option<String>,
+    /// Specific repositories to check
+    repositories: Vec<String>,
 
     /// Only perform repository checks (chunk CRCs)
     #[arg(long)]
@@ -19,9 +19,10 @@ pub struct Args {
 
 pub async fn main(args: Args) -> child::Result<()> {
     let config = Config::load_or_die().await;
-    let repos = match &args.repository {
-        Some(name) => vec![(name.as_str(), config.get_or_die(name))],
-        None => config.repos().collect(),
+    let repos: Vec<_> = if args.repositories.is_empty() {
+        config.repos().collect()
+    } else {
+        config.select_repos_or_die(&args.repositories).collect()
     };
 
     let mut reporter_set = ReporterSet::new(Widget::from_message("Checking repositories…"));

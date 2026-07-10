@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::ffi::OsString;
 use std::fmt::Display;
 use std::path::{Path, PathBuf};
@@ -104,6 +105,30 @@ impl Config {
 
     pub fn repos(&self) -> impl Iterator<Item = (&str, &RepoConfig)> {
         self.repos.iter().map(|(name, repo)| (name.as_str(), repo))
+    }
+
+    pub fn select_repos_or_die<'me, 'names, S>(
+        &'me self,
+        names: &'names [S],
+    ) -> impl Iterator<Item = (&'me str, &'me RepoConfig)> + 'names
+    where
+        'me: 'names,
+        S: AsRef<str>,
+    {
+        let want_set: HashSet<&str> = HashSet::from_iter(names.iter().map(AsRef::as_ref));
+        if want_set.len() != names.len() {
+            die!("Requested a repo more than once; remove your duplicates and try again.");
+        }
+
+        let have_set: HashSet<&str> = HashSet::from_iter(self.repos.keys().map(AsRef::as_ref));
+        let missing_set = &want_set - &have_set;
+        if !missing_set.is_empty() {
+            die!("Requested unknown repos; what do I operate on?",);
+        }
+
+        let selected_set = &want_set & &have_set;
+        self.repos()
+            .filter(move |(name, _)| selected_set.contains(name))
     }
 
     pub fn one_or_die(&self) -> (&str, &RepoConfig) {

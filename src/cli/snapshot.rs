@@ -20,8 +20,8 @@ use crate::snapshot::driver_none;
 
 #[derive(clap::Args)]
 pub struct Args {
-    /// The repository to work on
-    repository: Option<String>,
+    /// Specific repositories to snapshot to
+    repositories: Vec<String>,
 
     /// How to snapshot the home directory
     #[arg(long)]
@@ -67,9 +67,10 @@ impl Display for DriverKind {
 
 pub async fn main(args: Args) -> child::Result<()> {
     let config = Config::load_or_die().await;
-    let repos = match &args.repository {
-        Some(name) => vec![(name.as_str(), config.get_or_die(name))],
-        None => config.repos().collect(),
+    let repos: Vec<_> = if args.repositories.is_empty() {
+        config.repos().collect()
+    } else {
+        config.select_repos_or_die(&args.repositories).collect()
     };
 
     let Ok(ts) = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) else {
