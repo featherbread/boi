@@ -37,6 +37,9 @@ pub struct RepoConfig {
     /// This must work non-interactively, and should read the passphrase from a suitable credential
     /// manager that doesn't store passphrases in plain text on disk.
     password_command: String,
+
+    /// The path to the borg binary on the remote host. Required by some Borg hosting services.
+    remote_path: Option<String>,
 }
 
 impl Config {
@@ -128,6 +131,11 @@ impl RepoConfig {
             ("BORG_REPO", self.repo_url.clone()),
             ("BORG_PASSCOMMAND", self.password_command.clone()),
         ])
+        .chain(
+            self.remote_path
+                .as_ref()
+                .map(|path| ("BORG_REMOTE_PATH", path.clone())),
+        )
     }
 
     pub fn repo_url(&self) -> &str {
