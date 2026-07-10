@@ -58,7 +58,10 @@ impl Config {
             die!("Can't find your boi.toml; what do I do?");
         };
         let content = tokio::fs::read_to_string(path).await?;
-        toml::from_str(&content).map_err(Into::into)
+        let config: Config = toml::from_str(&content)?;
+        (!config.repos.is_empty())
+            .then_some(config)
+            .ok_or(Error::NoRepos)
     }
 
     async fn config_path() -> Option<PathBuf> {
@@ -104,10 +107,16 @@ impl Config {
     }
 
     pub fn one_or_die(&self) -> (&str, &RepoConfig) {
-        match self.repos.get_index(0) {
-            Some((name, config)) if self.repos.len() == 1 => (name, config),
-            Some(_) => die!("Found more than one repo in your config; you'll need to pick one."),
-            None => die!("Can't find any repos in your config; what do I operate on?"),
+        debug_assert!(
+            !self.repos.is_empty(),
+            "config loading should have failed with no repos defined"
+        );
+        if self.repos.len() == 1
+            && let Some((name, repo)) = self.repos.first()
+        {
+            (name, repo)
+        } else {
+            die!("Found more than one repo in your config; you'll need to pick one.");
         }
     }
 
@@ -150,6 +159,8 @@ pub enum Error {
     /// The config file isn't valid TOML. Note that `toml::de::Error` has an unusual multi-line
     /// `Display` impl that's best rendered with a blank line separating it from earlier text.
     Parse(#[from] toml::de::Error),
+    /// The config file failed to define any repos.
+    NoRepos,
 }
 
 impl Display for Error {
@@ -157,6 +168,7 @@ impl Display for Error {
         match self {
             Self::Open(err) => Display::fmt(err, f),
             Self::Parse(err) => Display::fmt(err.message(), f),
+            Self::NoRepos => f.write_str("no repos defined in config"),
         }
     }
 }
@@ -166,6 +178,7 @@ impl Error {
         match self {
             Self::Open(err) => die!("Can't load the boi config ({err}); I can't do anything!"),
             Self::Parse(err) => die!("Can't load the boi config; I can't do anything!\n\n{err}"),
+            Self::NoRepos => die!("Can't find any repos in your config; what do I operate on?"),
         }
     }
 }
