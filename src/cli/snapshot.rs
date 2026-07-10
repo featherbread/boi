@@ -41,7 +41,9 @@ pub enum DriverKind {
     None,
 }
 
-#[expect(clippy::derivable_impls)] // False positive, clippy doesn't understand this construction.
+// It's _possible_ to derive this with complicated #[cfg_attr(…, default)] attributes on the
+// variants, but not nearly as clean as this linear flow.
+#[expect(clippy::derivable_impls)]
 impl Default for DriverKind {
     fn default() -> Self {
         cfg_select! {
