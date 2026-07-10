@@ -5,6 +5,7 @@ use std::{env, iter};
 
 use indexmap::IndexMap;
 use serde_derive::Deserialize;
+use thiserror::Error;
 use tokio::io;
 use tokio::sync::OnceCell;
 
@@ -134,28 +135,14 @@ impl RepoConfig {
     }
 }
 
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum Error {
     /// The config file is missing or can't be opened.
-    Open(io::Error),
+    Open(#[from] io::Error),
     /// The config file isn't valid TOML. Note that `toml::de::Error` has an unusual multi-line
     /// `Display` impl that's best rendered with a blank line separating it from earlier text.
-    Parse(toml::de::Error),
+    Parse(#[from] toml::de::Error),
 }
-
-impl From<io::Error> for Error {
-    fn from(err: io::Error) -> Self {
-        Self::Open(err)
-    }
-}
-
-impl From<toml::de::Error> for Error {
-    fn from(err: toml::de::Error) -> Self {
-        Self::Parse(err)
-    }
-}
-
-impl std::error::Error for Error {}
 
 impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
