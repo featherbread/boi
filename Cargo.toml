@@ -7,10 +7,6 @@ authors = ["Alex Hamlin <alex@alexhamlin.co>"]
 edition = "2024"
 rust-version = "1.95.0"
 
-[features]
-default = ["upload"]
-upload = ["dep:url"]
-
 [dependencies]
 clap_complete = "4"
 console = "0.16"
@@ -21,7 +17,6 @@ serde_derive = "1"
 serde_json = "1"
 signal-hook = "0.4"
 thiserror = "2"
-url = { version = "2", optional = true }
 
 [dependencies.clap]
 version = "4"
