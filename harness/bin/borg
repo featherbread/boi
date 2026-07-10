@@ -53,7 +53,7 @@ esac
 # and turn SIGINT into SIGTERM. Disable ShellCheck's unused function lint, as
 # it has issues with trap.
 # shellcheck disable=SC2329
-kill_awk() { [[ ${awk_pid+_} ]] && kill "$awk_pid"; }
+kill_awk() { [[ ${awk_pid+_} ]] && kill "$awk_pid"; final_code=1; }
 trap kill_awk SIGINT
 
 awk -v factor="$time_factor" "$awk_src" "../transcripts/$ts_path" &
