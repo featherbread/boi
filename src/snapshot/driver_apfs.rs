@@ -1,15 +1,18 @@
 use std::env;
 use std::ffi::{CStr, CString, OsStr, OsString};
+use std::fmt::Display;
 use std::io;
 use std::mem::MaybeUninit;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
+use std::process;
 use std::time::Duration;
 
 use thiserror::Error;
 use tokio::fs;
 
 use crate::child::{self, Child};
+use crate::reporting::{ReporterSet, Widget};
 
 /// Constructs an array where all of the contained values are coerced into [`OsStr`] slices.
 ///
@@ -30,21 +33,45 @@ pub async fn in_backup_root<F, T>(args: Args, fut: F) -> T
 where
     F: Future<Output = T>,
 {
-    let Ok(cleanup) = enter_snapshot(args).await.map_err(|err| {
-        die!("Failed to create APFS snapshot ({err}); I can't back it up.");
-    });
+    let reporter_set = ReporterSet::new(Widget::text("Creating APFS snapshot…")).lock_repos();
+    let cleanup = match enter_snapshot(args).await {
+        Ok((snapshot_date, cleanup)) => {
+            reporter_set.finish(
+                "✓",
+                format!("Created and mounted APFS snapshot {snapshot_date}."),
+            );
+            cleanup
+        }
+        Err(err) => {
+            reporter_set.finish(
+                "✗",
+                format!("Failed to create APFS snapshot ({err}); you should look at that."),
+            );
+            process::exit(1);
+        }
+    };
 
     let result = fut.await;
 
+    let reporter_set = ReporterSet::new(Widget::text("Unmounting APFS snapshot…")).lock_repos();
     match cleanup.await {
-        Ok(()) => result,
+        Ok(action) => {
+            reporter_set.finish("✓", action.to_string());
+            result
+        }
         Err(err) => {
-            die!("Failed to clean up APFS snapshot ({err}); you should look at that.");
+            reporter_set.finish(
+                "✗",
+                format!("Failed to clean up APFS snapshot ({err}); you should look at that."),
+            );
+            process::exit(1);
         }
     }
 }
 
-async fn enter_snapshot(args: Args) -> Result<impl Future<Output = Result<(), Error>>, Error> {
+async fn enter_snapshot(
+    args: Args,
+) -> Result<(String, impl Future<Output = Result<SnapshotAction, Error>>), Error> {
     let home_abs = env::home_dir().ok_or(Error::HomeUnknown)?;
     let home_sub = home_abs.strip_prefix("/").or(Err(Error::HomeIsRelative))?;
     let mount_src = find_mount_base(&home_abs).map_err(Error::HomeMountBaseUnknown)?;
@@ -82,12 +109,10 @@ async fn enter_snapshot(args: Args) -> Result<impl Future<Output = Result<(), Er
     let backup_root = mount_target.join(home_sub);
     env::set_current_dir(&backup_root).map_err(|err| Error::ChdirFailed(backup_root, err))?;
 
-    speak!("✓", "Created and mounted APFS snapshot {snapshot_date}.");
-
     // Returning a future for the cleanup removes lots of boilerplate compared to an RAII guard,
     // since we don't need to hand-write a struct for the values we care about sharing.
     // Any awkwardness of this approach is internal to this module.
-    Ok(async move {
+    Ok((snapshot_date.clone(), async move {
         env::set_current_dir(&home_abs).map_err(|err| Error::ChdirFailed(home_abs, err))?;
 
         Child::from_cmdline(&os_strs!["diskutil", "unmount", mount_target.as_os_str()])
@@ -101,9 +126,9 @@ async fn enter_snapshot(args: Args) -> Result<impl Future<Output = Result<(), Er
             .map_err(|err| Error::MountTargetCleanupFailed(mount_target, err))?;
 
         if args.apfs_keep_snapshot {
-            speak!("✓", "Unmounted APFS snapshot; keeping per your request.");
-            return Ok(());
+            return Ok(SnapshotAction::Kept);
         }
+
         Child::from_cmdline(&["tmutil", "deletelocalsnapshots", &snapshot_date])
             .null_input()
             .null_output()
@@ -112,9 +137,8 @@ async fn enter_snapshot(args: Args) -> Result<impl Future<Output = Result<(), Er
             .await
             .map_err(|err| Error::SnapshotCleanupFailed(snapshot_date, err))?;
 
-        speak!("✓", "Unmounted APFS snapshot; deleting in background.");
-        Ok(())
-    })
+        Ok(SnapshotAction::Deleting)
+    }))
 }
 
 fn find_mount_base(path: &Path) -> io::Result<OsString> {
@@ -153,6 +177,24 @@ async fn create_local_snapshot() -> Result<String, Error> {
     {
         Some(date) => Ok(date.to_owned()),
         None => Err(Error::SnapshotMissingDate),
+    }
+}
+
+enum SnapshotAction {
+    Kept,
+    Deleting,
+}
+
+impl Display for SnapshotAction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SnapshotAction::Kept => {
+                f.write_str("Unmounted APFS snapshot; keeping per your request.")
+            }
+            SnapshotAction::Deleting => {
+                f.write_str("Unmounted APFS snapshot; deleting in background.")
+            }
+        }
     }
 }
 
