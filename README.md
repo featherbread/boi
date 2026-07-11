@@ -2,13 +2,24 @@
 
 > _breath in_... **backup**
 
+```
+[boi] ✓ Created and mounted APFS snapshot 2026-07-11-120102.
+[boi] ✓ Archived 18.35 GiB in 267561 files.
+      ┌ nas ✓ 267561 N 18.35 GiB S 11.62 GiB C 22.74 MiB D
+      └ Created archive in 106.872165 seconds
+      ┌ remote ✓ 267561 N 18.35 GiB S 11.62 GiB C 26.27 MiB D
+      └ Created archive in 107.827067 seconds
+[boi] ✓ Unmounted APFS snapshot; deleting in background.
+```
+
 boi is a small, opinionated wrapper for [Borg](https://www.borgbackup.org/) that:
 
-  * Creates new backup archives with consistent settings
-  * Uses APFS snapshots on macOS to avoid file drift during a backup
-  * Prunes archives using one of a handful of simple retention policies
+  * Backs up `$HOME` to multiple repos concurrently
+  * Uses APFS snapshots on macOS to avoid file drift
+  * Prunes archives on request using simple retention policies
 
-It's designed for my use alone, as a Rust rewrite of wrapper scripts that I
-wrote for these purposes in the past instead of adopting any more widely
-accepted Borg automation solution. It's made public in the hope that the code
-might be useful as a reference (probably for myself more than anyone else).
+It's something I've designed entirely for myself and my usage patterns, as an
+evolution of the Bash scripts I somehow decided were preferable to any more
+widely accepted, featureful, and battle-tested Borg automation solution.
+It's made public largely in the hope that the code might be useful as a
+reference, probably for my future self more than anyone else.
