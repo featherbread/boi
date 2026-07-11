@@ -3,8 +3,8 @@ timezone = "America/Los_Angeles"
 
 [repos.onefake]
 repo_url = "/tmp/willnotexist/onefake"
-password_command = "exit 1"
+passphrase_command = "exit 1"
 
 [repos.twofake]
 repo_url = "/tmp/willnotexist/twofake"
-password_command = "exit 1"
+passphrase_command = "exit 1"

@@ -37,7 +37,7 @@ pub struct RepoConfig {
     /// A command Borg will run to get the repository's passphrase, i.e. `$BORG_PASSCOMMAND`.
     /// This must work non-interactively, and should read the passphrase from a suitable credential
     /// manager that doesn't store passphrases in plain text on disk.
-    password_command: String,
+    passphrase_command: String,
 
     /// The path to the borg binary on the remote host, i.e. `$BORG_REMOTE_PATH`.
     /// Required by some Borg hosting services.
@@ -168,7 +168,7 @@ impl RepoConfig {
     pub fn env(&self) -> impl Iterator<Item = (&'static str, &str)> {
         IntoIterator::into_iter([
             ("BORG_REPO", self.repo_url.as_str()),
-            ("BORG_PASSCOMMAND", self.password_command.as_str()),
+            ("BORG_PASSCOMMAND", self.passphrase_command.as_str()),
         ])
         .chain(
             self.remote_path
