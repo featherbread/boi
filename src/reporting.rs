@@ -84,18 +84,27 @@ impl<K: reporterset::Kind> ReporterSet<K> {
             repo.finish_once("⚠", "Final status unknown.");
         }
 
-        let _ = self.0.mp.clear();
-        let (width, height) = Term::stdout().size();
+        // As of writing, indicatif finishes non-cleared bars with padding between the right edge
+        // of the progress output and the edge of the terminal, which causes odd rewrapping when
+        // the terminal is later resized. It may not be feasible to deal with resizing while the
+        // bars are _running_, but it really bugs me when this happens even after boi has exited.
+        // Since I don't want to duplicate the formatting from the ProgressStyle template strings,
+        // I have indicatif render to an in-memory fake terminal of the same size as the current
+        // stdout, and dump out the resulting contents, which don't include that same padding.
+        let mut stdout = Term::stdout();
+        let (width, height) = stdout.size();
         let target = indicatif::InMemoryTerm::new(width, height);
+        let _ = self.0.mp.clear();
         self.0
             .mp
             .set_draw_target(ProgressDrawTarget::term_like(Box::new(target.clone())));
 
-        // This seems to reliably force a draw to the in-memory terminal.
+        // This seems to reliably force a draw to the in-memory terminal, in lieu of an actual
+        // MultiProgress::force_draw.
         self.0.mp.suspend(|| {});
 
-        let _ = Term::stdout().write_all(target.contents().as_bytes());
-        let _ = Term::stdout().write_all(b"\n");
+        let _ = stdout.write_all(target.contents().as_bytes());
+        let _ = stdout.write_all(b"\n");
     }
 }
 
