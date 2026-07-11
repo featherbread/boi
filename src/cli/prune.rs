@@ -57,7 +57,7 @@ pub async fn main(args: Args) -> child::Result<()> {
 
     speak!(
         "⚑",
-        "Dry-running a prune for {profile} cleanup",
+        "Dry-running a prune for {profile} cleanup…",
         profile = args.profile
     );
     let result = dry_run(repo, &base_cmdline).await;
@@ -73,7 +73,7 @@ pub async fn main(args: Args) -> child::Result<()> {
         return Ok(()); // Don't treat immediate EOF or read errors as confirmation.
     }
 
-    speak!("⚑", "Pruning snapshots for real");
+    speak!("⚑", "Pruning snapshots for real…");
     let mut prune_cmdline = base_cmdline.clone();
     prune_cmdline.extend(["--stats", "--progress"]);
     Child::from_cmdline(&prune_cmdline)
@@ -81,7 +81,7 @@ pub async fn main(args: Args) -> child::Result<()> {
         .complete()
         .await?;
 
-    speak!("⚑", "Compacting archives");
+    speak!("⚑", "Compacting archives…");
     Child::from_cmdline(&["borg", "compact", "-v", "--progress"])
         .for_borg_repo(repo)
         .complete()

@@ -45,11 +45,11 @@ pub async fn main(args: Args) -> child::Result<()> {
 
     match child_err {
         None => {
-            reporter_set.finish("✓", "Confirmed all repositories are valid");
+            reporter_set.finish("✓", "Confirmed all repositories are valid.");
             Ok(())
         }
         Some(err) => {
-            reporter_set.finish("✗", "Found issues in repositories");
+            reporter_set.finish("✗", "Found issues in repositories!");
             Err(err)
         }
     }
@@ -90,7 +90,7 @@ async fn run(
     }
 
     let child_result = reporter
-        .wait_for_spawn(&mut spawn, "Waiting for Borg to exit")
+        .wait_for_spawn(&mut spawn, "Waiting for Borg to exit…")
         .await;
 
     let (sigil, message) = match &child_result {

@@ -114,11 +114,11 @@ pub async fn main(args: Args) -> child::Result<()> {
         match child_err {
             None => {
                 let stats = ArchiveStatsSummary(all_stats);
-                reporter_set.finish("✓", format!("Archived {stats}"));
+                reporter_set.finish("✓", format!("Archived {stats}."));
                 Ok(())
             }
             Some(err) => {
-                reporter_set.finish("✗", "Failed archiving to some repos");
+                reporter_set.finish("✗", "Failed to archive to all repos.");
                 Err(err)
             }
         }
@@ -214,7 +214,7 @@ impl Task {
         }
 
         let child_result = reporter
-            .wait_for_spawn(&mut spawn, "Waiting for Borg to exit")
+            .wait_for_spawn(&mut spawn, "Waiting for Borg to exit…")
             .await;
 
         let (sigil, message) = match &child_result {

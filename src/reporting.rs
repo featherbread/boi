@@ -164,16 +164,19 @@ impl RepoReporter {
     pub fn post_unhandled_event(&mut self, event: serde_json::Result<Event>) -> ControlFlow<()> {
         match event {
             Ok(Event::Unknown(None)) => {
-                self.suspend_once(|| speak!("⚑", "Unrecognized event from Borg"));
+                self.suspend_once(|| speak!("⚑", "Saw an unrecognized event from Borg."));
                 ControlFlow::Continue(())
             }
             Ok(Event::Unknown(Some(ty))) => {
-                self.suspend_once(|| speak!("⚑", "Unrecognized {ty} event from Borg"));
+                self.suspend_once(|| speak!("⚑", "Saw an unrecognized {ty} event from Borg."));
                 ControlFlow::Continue(())
             }
             Err(err) => {
                 self.suspend(|| {
-                    speak!("⚑", "Ignoring further Borg output due to JSON error: {err}")
+                    speak!(
+                        "⚑",
+                        "Saw invalid JSON from Borg ({err}); ignoring further output."
+                    );
                 });
                 ControlFlow::Break(())
             }

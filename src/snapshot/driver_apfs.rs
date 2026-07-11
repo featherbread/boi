@@ -82,7 +82,7 @@ async fn enter_snapshot(args: Args) -> impl Future<Output = ()> {
         die!("Can't change to snapshot dir ({err}); I won't be able to back it up.")
     });
 
-    speak!("✓", "Created and mounted APFS snapshot {snapshot_date}");
+    speak!("✓", "Created and mounted APFS snapshot {snapshot_date}.");
 
     // Returning a future for the cleanup removes lots of boilerplate compared to an RAII guard,
     // since we don't need to hand-write a struct for the values we care about sharing.
@@ -105,7 +105,7 @@ async fn enter_snapshot(args: Args) -> impl Future<Output = ()> {
         });
 
         if args.apfs_keep_snapshot {
-            speak!("✓", "Unmounted APFS snapshot; keeping per your request");
+            speak!("✓", "Unmounted APFS snapshot; keeping per your request.");
             return;
         }
         Child::from_cmdline(&["tmutil", "deletelocalsnapshots", &snapshot_date])
@@ -118,7 +118,7 @@ async fn enter_snapshot(args: Args) -> impl Future<Output = ()> {
                 die!("Failed to start snapshot cleanup ({err}); you should take a look at that.")
             });
 
-        speak!("✓", "Unmounted APFS snapshot; deleting in background");
+        speak!("✓", "Unmounted APFS snapshot; deleting in background.");
     }
 }
 

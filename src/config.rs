@@ -201,8 +201,8 @@ impl Display for Error {
 impl Error {
     pub fn die(&self) -> ! {
         match self {
-            Self::Open(err) => die!("Can't load the boi config ({err}); I can't do anything!"),
-            Self::Parse(err) => die!("Can't load the boi config; I can't do anything!\n\n{err}"),
+            Self::Open(err) => die!("Can't load your config ({err}); I can't do anything!"),
+            Self::Parse(err) => die!("Can't load your config; I can't do anything!\n\n{err}"),
             Self::NoRepos => die!("Can't find any repos in your config; what do I operate on?"),
         }
     }
