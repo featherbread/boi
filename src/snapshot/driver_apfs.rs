@@ -3,12 +3,13 @@ use std::ffi::{CStr, CString, OsStr, OsString};
 use std::io;
 use std::mem::MaybeUninit;
 use std::os::unix::ffi::OsStrExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use thiserror::Error;
 use tokio::fs;
 
-use crate::child::Child;
+use crate::child::{self, Child};
 
 /// Constructs an array where all of the contained values are coerced into [`OsStr`] slices.
 ///
@@ -29,24 +30,26 @@ pub async fn in_backup_root<F, T>(args: Args, fut: F) -> T
 where
     F: Future<Output = T>,
 {
-    let cleanup = enter_snapshot(args).await;
-    let result = fut.await;
-    cleanup.await;
-    result
-}
-
-async fn enter_snapshot(args: Args) -> impl Future<Output = ()> {
-    let Some(home_abs) = env::home_dir() else {
-        die!("Can't find $HOME; what do I back up?");
-    };
-    let Ok(home_sub) = home_abs.strip_prefix("/") else {
-        die!("$HOME isn't an absolute path; this is too confusing.");
-    };
-    let Ok(mount_src) = find_mount_base(&home_abs).map_err(|err| {
-        die!("Can't find where $HOME is mounted ({err}); I won't be able to snapshot.")
+    let Ok(cleanup) = enter_snapshot(args).await.map_err(|err| {
+        die!("Failed to create APFS snapshot ({err}); I can't back it up.");
     });
 
-    let snapshot_date = create_local_snapshot().await;
+    let result = fut.await;
+
+    match cleanup.await {
+        Ok(()) => result,
+        Err(err) => {
+            die!("Failed to clean up APFS snapshot ({err}); you should look at that.");
+        }
+    }
+}
+
+async fn enter_snapshot(args: Args) -> Result<impl Future<Output = Result<(), Error>>, Error> {
+    let home_abs = env::home_dir().ok_or(Error::HomeUnknown)?;
+    let home_sub = home_abs.strip_prefix("/").or(Err(Error::HomeIsRelative))?;
+    let mount_src = find_mount_base(&home_abs).map_err(Error::HomeMountBaseUnknown)?;
+
+    let snapshot_date = create_local_snapshot().await?;
     let snapshot_id = format!("com.apple.TimeMachine.{snapshot_date}.local");
 
     // The APFS driver only makes sense on Apple platforms, which default to providing per-user
@@ -59,9 +62,9 @@ async fn enter_snapshot(args: Args) -> impl Future<Output = ()> {
         pid = std::process::id()
     ));
 
-    fs::create_dir(&mount_target).await.map_err(|err| {
-        die!("Failed to create mount directory ({err}); I can't mount the snapshot.")
-    });
+    fs::create_dir(&mount_target)
+        .await
+        .map_err(Error::MountTargetCreateFailed)?;
 
     let mount_cmdline = os_strs![
         "mount_apfs",
@@ -74,38 +77,32 @@ async fn enter_snapshot(args: Args) -> impl Future<Output = ()> {
         .null_output()
         .complete()
         .await
-        .map_err(|err| die!("Can't mount snapshot ({err}); I won't be able to back it up."));
+        .map_err(Error::MountFailed)?;
 
     let backup_root = mount_target.join(home_sub);
-    env::set_current_dir(backup_root).map_err(|err| {
-        die!("Can't change to snapshot dir ({err}); I won't be able to back it up.")
-    });
+    env::set_current_dir(&backup_root).map_err(|err| Error::ChdirFailed(backup_root, err))?;
 
     speak!("✓", "Created and mounted APFS snapshot {snapshot_date}.");
 
     // Returning a future for the cleanup removes lots of boilerplate compared to an RAII guard,
     // since we don't need to hand-write a struct for the values we care about sharing.
     // Any awkwardness of this approach is internal to this module.
-    async move {
-        env::set_current_dir(home_abs).map_err(|err| {
-            die!("Can't return to $HOME ({err}); I won't be able to unmount the snapshot.")
-        });
+    Ok(async move {
+        env::set_current_dir(&home_abs).map_err(|err| Error::ChdirFailed(home_abs, err))?;
 
         Child::from_cmdline(&os_strs!["diskutil", "unmount", mount_target.as_os_str()])
             .null_output()
             .complete()
             .await
-            .map_err(|err| {
-                die!("Failed to unmount snapshot ({err}); you should take a look at that.")
-            });
+            .map_err(|err| Error::UnmountFailed(mount_target.clone(), err))?;
 
-        fs::remove_dir(mount_target).await.map_err(|err| {
-            die!("Failed to remove mount directory ({err}); you should take a look at that.")
-        });
+        fs::remove_dir(&mount_target)
+            .await
+            .map_err(|err| Error::MountTargetCleanupFailed(mount_target, err))?;
 
         if args.apfs_keep_snapshot {
             speak!("✓", "Unmounted APFS snapshot; keeping per your request.");
-            return;
+            return Ok(());
         }
         Child::from_cmdline(&["tmutil", "deletelocalsnapshots", &snapshot_date])
             .null_input()
@@ -113,12 +110,11 @@ async fn enter_snapshot(args: Args) -> impl Future<Output = ()> {
             .null_timezone()
             .spawn_and_background_after(Duration::from_millis(500))
             .await
-            .map_err(|err| {
-                die!("Failed to start snapshot cleanup ({err}); you should take a look at that.")
-            });
+            .map_err(|err| Error::SnapshotCleanupFailed(snapshot_date, err))?;
 
         speak!("✓", "Unmounted APFS snapshot; deleting in background.");
-    }
+        Ok(())
+    })
 }
 
 fn find_mount_base(path: &Path) -> io::Result<OsString> {
@@ -142,14 +138,12 @@ fn find_mount_base(path: &Path) -> io::Result<OsString> {
     }
 }
 
-async fn create_local_snapshot() -> String {
-    let Ok(out) = Child::from_cmdline(&["tmutil", "localsnapshot"])
+async fn create_local_snapshot() -> Result<String, Error> {
+    let out = Child::from_cmdline(&["tmutil", "localsnapshot"])
         .null_timezone()
         .capture_output()
         .await
-        .map_err(|err| {
-            die!("Can't make a Time Machine snapshot ({err}); you should look into that.")
-        });
+        .map_err(Error::SnapshotCreateFailed)?;
 
     const LOCAL_SNAPSHOT_MSG: &str = "Created local snapshot with date: ";
 
@@ -157,7 +151,35 @@ async fn create_local_snapshot() -> String {
         .ok()
         .and_then(|s| s.lines().find_map(|l| l.strip_prefix(LOCAL_SNAPSHOT_MSG)))
     {
-        Some(date) => date.to_owned(),
-        None => die!("Can't find the snapshot date in tmutil's output; what do I mount?"),
+        Some(date) => Ok(date.to_owned()),
+        None => Err(Error::SnapshotMissingDate),
     }
+}
+
+// TODO: child::Error should include the command line, instead of me rewriting each command here
+// where it could get stale.
+#[derive(Error, Debug)]
+enum Error {
+    #[error("can't determine $HOME")]
+    HomeUnknown,
+    #[error("$HOME is a non-absolute path")]
+    HomeIsRelative,
+    #[error("can't find where $HOME is mounted: {0}")]
+    HomeMountBaseUnknown(io::Error),
+    #[error("tmutil localsnapshot failed: {0}")]
+    SnapshotCreateFailed(child::Error),
+    #[error("can't find snapshot date in tmutil localsnapshot output")]
+    SnapshotMissingDate,
+    #[error("failed to create mount directory: {0}")]
+    MountTargetCreateFailed(io::Error),
+    #[error("mount_apfs -s failed: {0}")]
+    MountFailed(child::Error),
+    #[error("failed to chdir to {0}: {1}")]
+    ChdirFailed(PathBuf, io::Error),
+    #[error("diskutil unmount {0} failed: {1}")]
+    UnmountFailed(PathBuf, child::Error),
+    #[error("failed to clean up {0}: {1}")]
+    MountTargetCleanupFailed(PathBuf, io::Error),
+    #[error("tmutil deletelocalsnapshots {0} failed: {1}")]
+    SnapshotCleanupFailed(String, child::Error),
 }
