@@ -1,8 +1,9 @@
 use std::cmp;
 use std::env;
 use std::fmt::{self, Display};
+use std::iter;
 use std::ops::ControlFlow;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime};
 
 use futures::StreamExt;
@@ -78,31 +79,28 @@ pub async fn main(args: Args) -> child::Result<()> {
     };
 
     let run = async move {
-        let all_stats: SharedArchiveStatsList = Default::default();
-        let mut reporter_set = ReporterSet::new(Widget::new(ArchiveStatsSummaryRunning(
-            Arc::clone(&all_stats),
-        )));
+        let all_stats: Vec<SharedArchiveStats> = repos.iter().map(|_| Default::default()).collect();
 
-        let tasks: Vec<_> = repos
-            .into_iter()
-            .map(|(name, repo)| Task::new(name.to_owned(), repo.clone(), ts))
-            .map(|task| {
-                let name = task.name().to_owned();
-                let header = Widget::new(ArchiveStatsDisplay(Arc::clone(task.last_stats())));
-                (task, reporter_set.add_repo(name, header))
+        let mut reporter_set =
+            ReporterSet::new(Widget::new(ArchiveStatsSummaryRunning(all_stats.clone())));
+
+        let tasks: Vec<_> = iter::zip(repos, &all_stats)
+            .map(|((name, repo), stats)| Task {
+                ts,
+                repo: repo.clone(),
+                stats: Arc::clone(stats),
+                reporter: reporter_set.add_repo(
+                    name.to_owned(),
+                    Widget::new(ArchiveStatsDisplay(Arc::clone(stats))),
+                ),
             })
             .collect();
 
         let reporter_set = reporter_set.lock_repos();
 
-        all_stats
-            .lock()
-            .unwrap()
-            .extend(tasks.iter().map(|(task, _)| Arc::clone(task.last_stats())));
-
         let spawns: Vec<_> = tasks
             .into_iter()
-            .map(|(task, reporter)| tokio::spawn(task.run(reporter)))
+            .map(|task| tokio::spawn(task.run()))
             .collect();
 
         let mut child_err = None;
@@ -115,7 +113,7 @@ pub async fn main(args: Args) -> child::Result<()> {
 
         match child_err {
             None => {
-                let stats = ArchiveStatsSummary(all_stats);
+                let stats = ArchiveStatsSummary(&all_stats);
                 reporter_set.finish("✓", format!("Archived {stats}."));
                 Ok(())
             }
@@ -135,31 +133,14 @@ pub async fn main(args: Args) -> child::Result<()> {
 }
 
 struct Task {
-    name: String,
-    repo: RepoConfig,
     ts: Duration,
-    last_stats: SharedArchiveStats,
+    repo: RepoConfig,
+    stats: SharedArchiveStats,
+    reporter: RepoReporter,
 }
 
 impl Task {
-    fn new(name: String, repo: RepoConfig, ts: Duration) -> Self {
-        Self {
-            name,
-            repo,
-            ts,
-            last_stats: Arc::new(RwLock::new(ArchiveStats::default())),
-        }
-    }
-
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    fn last_stats(&self) -> &SharedArchiveStats {
-        &self.last_stats
-    }
-
-    async fn run(self, mut reporter: RepoReporter) -> child::Result<()> {
+    async fn run(mut self) -> child::Result<()> {
         let backup_spec = format!(
             "{url}::{sec}",
             url = self.repo.repo_url(),
@@ -187,22 +168,22 @@ impl Task {
         while let Some(event) = event_stream.next().await {
             match event {
                 Ok(Event::ProgressMessage(msg)) => {
-                    reporter.post_message(msg);
+                    self.reporter.post_message(msg);
                 }
                 Ok(Event::ArchiveProgress(Progress::Finished)) => {
-                    reporter.post_message("Finished archiving files");
+                    self.reporter.post_message("Finished archiving files");
                 }
                 Ok(Event::ArchiveProgress(Progress::Running(progress))) => {
-                    *self.last_stats.write().unwrap() = progress.stats;
-                    reporter.post_message(progress.path);
+                    *self.stats.write().unwrap() = progress.stats;
+                    self.reporter.post_message(progress.path);
                 }
                 Ok(Event::ArchiveComplete(event)) => {
                     archive_complete_event = Some(event);
                 }
                 Ok(Event::LogMessage(msg)) => {
-                    reporter.suspend(|| speak!("⚑", "{}", msg.message));
+                    self.reporter.suspend(|| speak!("⚑", "{}", msg.message));
                 }
-                event => match reporter.post_unhandled_event(event) {
+                event => match self.reporter.post_unhandled_event(event) {
                     ControlFlow::Continue(()) => {}
                     ControlFlow::Break(()) => break,
                 },
@@ -212,10 +193,11 @@ impl Task {
         let mut duration = None;
         if let Some(event) = archive_complete_event {
             duration = Some(event.duration);
-            *self.last_stats.write().unwrap() = event.stats;
+            *self.stats.write().unwrap() = event.stats;
         }
 
-        let child_result = reporter
+        let child_result = self
+            .reporter
             .wait_for_spawn(&mut spawn, "Waiting for Borg to exit…")
             .await;
 
@@ -234,14 +216,12 @@ impl Task {
             Err(child::Error::Launch(err)) => ("✗", format!("Failed to wait for Borg: {err}")),
         };
 
-        reporter.finish_once(sigil, message);
+        self.reporter.finish_once(sigil, message);
         child_result
     }
 }
 
 type SharedArchiveStats = Arc<RwLock<ArchiveStats>>;
-
-type SharedArchiveStatsList = Arc<Mutex<Vec<SharedArchiveStats>>>;
 
 pub struct ArchiveStatsDisplay(SharedArchiveStats);
 
@@ -252,23 +232,21 @@ impl Display for ArchiveStatsDisplay {
     }
 }
 
-pub struct ArchiveStatsSummaryRunning(SharedArchiveStatsList);
+pub struct ArchiveStatsSummaryRunning(Vec<SharedArchiveStats>);
 
 impl Display for ArchiveStatsSummaryRunning {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let summary = ArchiveStatsSummary(Arc::clone(&self.0));
+        let summary = ArchiveStatsSummary(&self.0);
         write!(f, "Archiving {summary}…")
     }
 }
 
-pub struct ArchiveStatsSummary(SharedArchiveStatsList);
+pub struct ArchiveStatsSummary<'s>(&'s [SharedArchiveStats]);
 
-impl Display for ArchiveStatsSummary {
+impl<'s> Display for ArchiveStatsSummary<'s> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let (max_nfiles, max_size) = self
             .0
-            .lock()
-            .unwrap()
             .iter()
             .map(|s| {
                 let s = s.read().unwrap();
@@ -277,13 +255,13 @@ impl Display for ArchiveStatsSummary {
             .reduce(|(na, sa), (nb, sb)| (cmp::max(na, nb), cmp::max(sa, sb)))
             .unwrap_or_default();
 
-        if max_nfiles == 0 && max_size == 0 {
+        if (max_nfiles, max_size) == (0, 0) {
             write!(f, "files")
         } else {
             write!(
                 f,
-                "{orig} in {nfiles} file{s}",
-                orig = HumanBytes(max_size),
+                "{size} in {nfiles} file{s}",
+                size = HumanBytes(max_size),
                 nfiles = max_nfiles,
                 s = if max_nfiles == 1 { "" } else { "s" },
             )
