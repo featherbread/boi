@@ -30,7 +30,7 @@ pub async fn main(args: Args) -> child::Result<()> {
     let spawns: Vec<_> = repos
         .into_iter()
         .map(|(name, repo)| {
-            let reporter = reporter_set.add_repo(name.to_owned(), Widget::text(""));
+            let reporter = reporter_set.add_repo(name.to_owned(), Widget::blank());
             tokio::spawn(run(repo.clone(), reporter, args.repository_only))
         })
         .collect();

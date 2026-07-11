@@ -274,8 +274,8 @@ impl RepoReporterState {
             "sigil",
             if let Some(sigil) = self.sigil {
                 Widget::text(sigil)
-            } else if self.header.to_string().is_empty() {
-                Widget::text("")
+            } else if self.header.is_empty() {
+                Widget::blank()
             } else {
                 Widget::text(DEFAULT_REPO_SIGIL)
             },
@@ -302,27 +302,41 @@ impl RepoReporterState {
 }
 
 #[derive(Clone)]
-pub struct Widget(Arc<dyn Display + Send + Sync + 'static>);
+pub struct Widget(Option<Arc<dyn Display + Send + Sync + 'static>>);
 
 impl Widget {
     pub fn new(inner: impl Display + Send + Sync + 'static) -> Self {
-        Self(Arc::new(inner))
+        Self(Some(Arc::new(inner)))
     }
 
     pub fn text(msg: impl Into<Cow<'static, str>>) -> Self {
         Self::new(msg.into())
     }
+
+    pub fn blank() -> Self {
+        Self(None)
+    }
+
+    fn is_empty(&self) -> bool {
+        match &self.0 {
+            None => true,
+            Some(me) => me.to_string().is_empty(),
+        }
+    }
 }
 
 impl Display for Widget {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
+        self.0
+            .as_ref()
+            .map(|me| write!(f, "{me}"))
+            .unwrap_or(Ok(()))
     }
 }
 
 impl ProgressTracker for Widget {
     fn clone_box(&self) -> Box<dyn ProgressTracker> {
-        Box::new(Widget(Arc::clone(&self.0)))
+        Box::new(Widget(self.0.clone()))
     }
 
     fn tick(&mut self, _: &ProgressState, _: time::Instant) {}
@@ -330,6 +344,8 @@ impl ProgressTracker for Widget {
     fn reset(&mut self, _: &ProgressState, _: time::Instant) {}
 
     fn write(&self, _: &ProgressState, w: &mut dyn fmt::Write) {
-        let _ = write!(w, "{}", self.0);
+        if let Some(me) = &self.0 {
+            let _ = write!(w, "{me}");
+        }
     }
 }
