@@ -25,12 +25,12 @@ pub async fn main(args: Args) -> child::Result<()> {
         config.select_repos_or_die(&args.repositories).collect()
     };
 
-    let mut reporter_set = ReporterSet::new(Widget::from_message("Checking repositories…"));
+    let mut reporter_set = ReporterSet::new(Widget::text("Checking repositories…"));
 
     let spawns: Vec<_> = repos
         .into_iter()
         .map(|(name, repo)| {
-            let reporter = reporter_set.add_repo(name.to_owned(), Widget::from_message(""));
+            let reporter = reporter_set.add_repo(name.to_owned(), Widget::text(""));
             tokio::spawn(run(repo.clone(), reporter, args.repository_only))
         })
         .collect();

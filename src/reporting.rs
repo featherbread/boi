@@ -118,7 +118,7 @@ impl HeadReporter {
 
     fn finish(&mut self, sigil: &'static str, msg: impl Into<Cow<'static, str>>) {
         self.sigil = Some(sigil);
-        self.header = Widget::from_message(msg);
+        self.header = Widget::text(msg);
         self.refresh_bar();
         self.bar.finish();
     }
@@ -135,7 +135,7 @@ impl HeadReporter {
             Some(sigil) => ProgressStyle::with_template("[boi] {sigil} {header}")
                 .expect("hardcoded ProgressStyle template should be valid")
                 .with_key("header", self.header.clone())
-                .with_key("sigil", Widget::from_message(sigil)),
+                .with_key("sigil", Widget::text(sigil)),
         }
     }
 }
@@ -273,11 +273,11 @@ impl RepoReporterState {
         .with_key(
             "sigil",
             if let Some(sigil) = self.sigil {
-                Widget::from_message(sigil)
+                Widget::text(sigil)
             } else if self.header.to_string().is_empty() {
-                Widget::from_message("")
+                Widget::text("")
             } else {
-                Widget::from_message(DEFAULT_REPO_SIGIL)
+                Widget::text(DEFAULT_REPO_SIGIL)
             },
         )
     }
@@ -289,14 +289,14 @@ impl RepoReporterState {
         ])
         .with_key(
             "sigil",
-            Widget::from_message(self.sigil.unwrap_or(DEFAULT_REPO_SIGIL)),
+            Widget::text(self.sigil.unwrap_or(DEFAULT_REPO_SIGIL)),
         )
     }
 
     fn create_style(&self, template: &[&'static str]) -> ProgressStyle {
         ProgressStyle::with_template(&template.join("\n"))
             .expect("hardcoded ProgressStyle template should be valid")
-            .with_key("name", Widget::from_message(self.name.clone()))
+            .with_key("name", Widget::text(self.name.clone()))
             .with_key("header", self.header.clone())
     }
 }
@@ -309,7 +309,7 @@ impl Widget {
         Self(Arc::new(inner))
     }
 
-    pub fn from_message(msg: impl Into<Cow<'static, str>>) -> Self {
+    pub fn text(msg: impl Into<Cow<'static, str>>) -> Self {
         Self::new(msg.into())
     }
 }
