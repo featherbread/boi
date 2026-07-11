@@ -47,11 +47,11 @@ pub async fn main(args: Args) -> child::Result<()> {
 
     match child_err {
         None => {
-            reporter.finish("✓", "Confirmed all repositories are valid.");
+            reporter.succeed("Confirmed all repositories are valid.");
             Ok(())
         }
         Some(err) => {
-            reporter.finish("✗", "Found issues in repositories!");
+            reporter.fail("Found issues in repositories!");
             Err(err)
         }
     }

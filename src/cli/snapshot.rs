@@ -114,11 +114,11 @@ pub async fn main(args: Args) -> child::Result<()> {
         match child_err {
             None => {
                 let stats = ArchiveStatsSummary(&all_stats);
-                reporter.finish("✓", format!("Archived {stats}."));
+                reporter.succeed(format_args!("Archived {stats}."));
                 Ok(())
             }
             Some(err) => {
-                reporter.finish("✗", "Failed to archive to all repos.");
+                reporter.fail("Failed to archive to all repos.");
                 Err(err)
             }
         }

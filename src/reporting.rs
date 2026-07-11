@@ -4,6 +4,7 @@ use std::io::Write;
 use std::marker::PhantomData;
 use std::mem::{self, Discriminant};
 use std::ops::ControlFlow;
+use std::process;
 use std::sync::Arc;
 use std::time::{self, Duration};
 
@@ -62,13 +63,17 @@ impl Reporter<ReposAddable> {
         repo
     }
 
-    /// Enables features that reduce flickering of the output but require the number of displayed
-    /// progress indicators to remain constant.
+    /// Enables features that reduce output flickering but require the number of displayed progress
+    /// indicators to remain constant.
     pub fn lock_repos(self) -> Reporter<ReposLocked> {
         self.0.mp.set_move_cursor(true);
         Reporter(self.0, PhantomData)
     }
 
+    /// Creates [`ProgressBar`]s with consistent settings.
+    ///
+    /// This also follows the pattern documented in [`MultiProgress`] to ensure that a bar doesn't
+    /// draw itself independently of others.
     fn new_bar_in(mp: &MultiProgress) -> ProgressBar {
         let bar = mp.add(ProgressBar::no_length());
         bar.enable_steady_tick(TICK_INTERVAL);
@@ -77,7 +82,21 @@ impl Reporter<ReposAddable> {
 }
 
 impl<K: reporterkind::Kind> Reporter<K> {
-    pub fn finish(mut self, sigil: &'static str, msg: impl Into<Cow<'static, str>>) {
+    pub fn succeed(self, msg: impl Display) {
+        self.finish("✓", msg.to_string());
+    }
+
+    pub fn fail(self, msg: impl Display) {
+        self.finish("✗", msg.to_string());
+    }
+
+    #[allow(dead_code)]
+    pub fn die(self, msg: impl Display) -> ! {
+        self.fail(msg);
+        process::exit(1);
+    }
+
+    fn finish(mut self, sigil: &'static str, msg: String) {
         self.0.head.finish(sigil, msg);
         for mut repo in self.0.repos {
             repo.finish_once("⚠", "Final status unknown.");
@@ -124,7 +143,7 @@ impl HeadReporter {
         head
     }
 
-    fn finish(&mut self, sigil: &'static str, msg: impl Into<Cow<'static, str>>) {
+    fn finish(&mut self, sigil: &'static str, msg: String) {
         self.sigil = Some(sigil);
         self.header = Widget::text(msg);
         self.refresh_bar();

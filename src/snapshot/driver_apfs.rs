@@ -5,7 +5,6 @@ use std::io;
 use std::mem::MaybeUninit;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
-use std::process;
 use std::time::Duration;
 
 use thiserror::Error;
@@ -36,18 +35,15 @@ where
     let reporter = Reporter::new(Widget::text("Creating APFS snapshot…")).lock_repos();
     let cleanup = match enter_snapshot(args).await {
         Ok((snapshot_date, cleanup)) => {
-            reporter.finish(
-                "✓",
-                format!("Created and mounted APFS snapshot {snapshot_date}."),
-            );
+            reporter.succeed(format_args!(
+                "Created and mounted APFS snapshot {snapshot_date}."
+            ));
             cleanup
         }
         Err(err) => {
-            reporter.finish(
-                "✗",
-                format!("Failed to create APFS snapshot ({err}); you should look at that."),
-            );
-            process::exit(1);
+            reporter.die(format_args!(
+                "Failed to create APFS snapshot ({err}); you should look at that."
+            ));
         }
     };
 
@@ -56,15 +52,13 @@ where
     let reporter = Reporter::new(Widget::text("Unmounting APFS snapshot…")).lock_repos();
     match cleanup.await {
         Ok(action) => {
-            reporter.finish("✓", action.to_string());
+            reporter.succeed(action);
             result
         }
         Err(err) => {
-            reporter.finish(
-                "✗",
-                format!("Failed to clean up APFS snapshot ({err}); you should look at that."),
-            );
-            process::exit(1);
+            reporter.die(format_args!(
+                "Failed to clean up APFS snapshot ({err}); you should look at that."
+            ));
         }
     }
 }
