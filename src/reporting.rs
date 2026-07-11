@@ -4,7 +4,7 @@ use std::io::Write;
 use std::marker::PhantomData;
 use std::mem::{self, Discriminant};
 use std::ops::ControlFlow;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::{self, Duration};
 
 use console::Term;
@@ -49,7 +49,7 @@ impl ReporterSet<ReposAddable> {
     }
 
     pub fn add_repo(&mut self, name: String, header: Widget) -> RepoReporter {
-        let mut repo = RepoReporter(Arc::new(RwLock::new(RepoReporterState {
+        let mut repo = RepoReporter {
             mp: self.0.mp.clone(),
             bar: Self::new_bar_in(&self.0.mp),
             name,
@@ -58,7 +58,7 @@ impl ReporterSet<ReposAddable> {
             report: Report::Message("".into()),
             did_once: false,
             current_style: None,
-        })));
+        };
         repo.post_message("Starting up…");
         repo
     }
@@ -151,10 +151,7 @@ impl HeadReporter {
 
 const DEFAULT_REPO_SIGIL: &str = "─";
 
-#[derive(Clone)]
-pub struct RepoReporter(Arc<RwLock<RepoReporterState>>);
-
-pub struct RepoReporterState {
+pub struct RepoReporter {
     mp: MultiProgress,
     bar: ProgressBar,
 
@@ -174,27 +171,23 @@ enum Report {
 
 impl RepoReporter {
     pub fn post_message(&mut self, msg: impl Into<Cow<'static, str>>) {
-        let mut me = self.0.write().unwrap();
-        me.report = Report::Message(msg.into());
-        me.refresh_bar();
+        self.report = Report::Message(msg.into());
+        self.refresh_bar();
     }
 
     pub fn post_progress(&mut self, progress: ProgressPercent) {
-        let mut me = self.0.write().unwrap();
-        me.report = Report::Progress(progress);
-        me.refresh_bar();
+        self.report = Report::Progress(progress);
+        self.refresh_bar();
     }
 
     pub fn suspend(&mut self, f: impl FnOnce()) {
-        let me = self.0.read().unwrap();
-        me.mp.suspend(f);
+        self.mp.suspend(f);
     }
 
     pub fn suspend_once(&mut self, f: impl FnOnce()) {
-        let mut me = self.0.write().unwrap();
-        if !me.did_once {
-            me.mp.suspend(f);
-            me.did_once = true;
+        if !self.did_once {
+            self.mp.suspend(f);
+            self.did_once = true;
         }
     }
 
@@ -236,18 +229,15 @@ impl RepoReporter {
     }
 
     pub fn finish_once(&mut self, sigil: &'static str, msg: impl Into<Cow<'static, str>>) {
-        let mut me = self.0.write().unwrap();
-        if me.sigil.is_none() {
-            me.sigil = Some(sigil);
-            me.report = Report::Message(msg.into());
-            me.current_style = None; // Force a restyle of the bar.
-            me.refresh_bar();
-            me.bar.finish();
+        if self.sigil.is_none() {
+            self.sigil = Some(sigil);
+            self.report = Report::Message(msg.into());
+            self.current_style = None; // Force a restyle of the bar.
+            self.refresh_bar();
+            self.bar.finish();
         }
     }
-}
 
-impl RepoReporterState {
     fn refresh_bar(&mut self) {
         let want_style = mem::discriminant(&self.report);
         if self.current_style != Some(want_style) {
