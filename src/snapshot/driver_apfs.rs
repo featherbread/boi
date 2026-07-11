@@ -10,8 +10,7 @@ use tokio::fs;
 
 use crate::child::Child;
 
-/// Constructs an array where all of the contained values are coerced into
-/// [`OsStr`](std::ffi::OsStr) slices.
+/// Constructs an array where all of the contained values are coerced into [`OsStr`] slices.
 ///
 /// This makes it nicer to mix string literals with other `OsStr` values.
 macro_rules! os_strs {

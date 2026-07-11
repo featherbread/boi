@@ -31,7 +31,7 @@ pub struct GlobalConfig {
 #[derive(Deserialize, Clone)]
 pub struct RepoConfig {
     /// The repository URL, i.e. `$BORG_REPO`; see
-    /// https://borgbackup.readthedocs.io/en/stable/usage/general.html#repository-urls.
+    /// <https://borgbackup.readthedocs.io/en/stable/usage/general.html#repository-urls>.
     repo_url: String,
 
     /// A command Borg will run to get the repository's passphrase, i.e. `$BORG_PASSCOMMAND`.
@@ -39,7 +39,8 @@ pub struct RepoConfig {
     /// manager that doesn't store passphrases in plain text on disk.
     password_command: String,
 
-    /// The path to the borg binary on the remote host. Required by some Borg hosting services.
+    /// The path to the borg binary on the remote host, i.e. `$BORG_REMOTE_PATH`.
+    /// Required by some Borg hosting services.
     remote_path: Option<String>,
 }
 
