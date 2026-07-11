@@ -50,7 +50,6 @@ impl ReporterSet<ReposAddable> {
 
     pub fn add_repo(&mut self, name: String, header: Widget) -> RepoReporter {
         let mut repo = RepoReporter {
-            mp: self.0.mp.clone(),
             bar: Self::new_bar_in(&self.0.mp),
             name,
             sigil: None,
@@ -152,14 +151,11 @@ impl HeadReporter {
 const DEFAULT_REPO_SIGIL: &str = "─";
 
 pub struct RepoReporter {
-    mp: MultiProgress,
     bar: ProgressBar,
-
     name: String,
     sigil: Option<&'static str>,
     header: Widget,
     report: Report,
-
     did_once: bool,
     current_style: Option<Discriminant<Report>>,
 }
@@ -181,12 +177,12 @@ impl RepoReporter {
     }
 
     pub fn suspend(&mut self, f: impl FnOnce()) {
-        self.mp.suspend(f);
+        self.bar.suspend(f);
     }
 
     pub fn suspend_once(&mut self, f: impl FnOnce()) {
         if !self.did_once {
-            self.mp.suspend(f);
+            self.bar.suspend(f);
             self.did_once = true;
         }
     }
