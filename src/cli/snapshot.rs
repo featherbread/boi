@@ -12,7 +12,7 @@ use indicatif::HumanBytes;
 use crate::borg::{self, ArchiveStats, Event, Progress};
 use crate::child::{self, Child};
 use crate::config::{Config, RepoConfig};
-use crate::reporting::{RepoReporter, ReporterSet, Widget};
+use crate::reporting::{RepoReporter, Reporter, Widget};
 
 #[cfg(boi_has_driver = "apfs")]
 use crate::snapshot::driver_apfs;
@@ -81,22 +81,22 @@ pub async fn main(args: Args) -> child::Result<()> {
     let run = async move {
         let all_stats: Vec<SharedArchiveStats> = repos.iter().map(|_| Default::default()).collect();
 
-        let mut reporter_set =
-            ReporterSet::new(Widget::new(ArchiveStatsSummaryRunning(all_stats.clone())));
+        let mut reporter =
+            Reporter::new(Widget::new(ArchiveStatsSummaryRunning(all_stats.clone())));
 
         let tasks: Vec<_> = iter::zip(repos, &all_stats)
             .map(|((name, repo), stats)| Task {
                 ts,
                 repo: repo.clone(),
                 stats: Arc::clone(stats),
-                reporter: reporter_set.add_repo(
+                reporter: reporter.add_repo(
                     name.to_owned(),
                     Widget::new(ArchiveStatsDisplay(Arc::clone(stats))),
                 ),
             })
             .collect();
 
-        let reporter_set = reporter_set.lock_repos();
+        let reporter = reporter.lock_repos();
 
         let spawns: Vec<_> = tasks
             .into_iter()
@@ -114,11 +114,11 @@ pub async fn main(args: Args) -> child::Result<()> {
         match child_err {
             None => {
                 let stats = ArchiveStatsSummary(&all_stats);
-                reporter_set.finish("✓", format!("Archived {stats}."));
+                reporter.finish("✓", format!("Archived {stats}."));
                 Ok(())
             }
             Some(err) => {
-                reporter_set.finish("✗", "Failed to archive to all repos.");
+                reporter.finish("✗", "Failed to archive to all repos.");
                 Err(err)
             }
         }

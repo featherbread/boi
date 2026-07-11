@@ -17,9 +17,9 @@ use crate::child;
 const TICK_INTERVAL: Duration = Duration::from_millis(100);
 
 #[repr(transparent)]
-pub struct ReporterSet<K: reporterset::Kind>(ReporterSetState, PhantomData<K>);
+pub struct Reporter<K: reporterkind::Kind>(ReporterState, PhantomData<K>);
 
-struct ReporterSetState {
+struct ReporterState {
     mp: MultiProgress,
     head: HeadReporter,
     repos: Vec<RepoReporter>,
@@ -28,18 +28,18 @@ struct ReporterSetState {
 pub enum ReposAddable {}
 pub enum ReposLocked {}
 
-mod reporterset {
+mod reporterkind {
     pub trait Kind {}
     impl Kind for super::ReposAddable {}
     impl Kind for super::ReposLocked {}
 }
 
-impl ReporterSet<ReposAddable> {
+impl Reporter<ReposAddable> {
     pub fn new(header: Widget) -> Self {
         let mp = MultiProgress::new();
         let head_bar = Self::new_bar_in(&mp);
         Self(
-            ReporterSetState {
+            ReporterState {
                 mp,
                 head: HeadReporter::new_with_bar(head_bar, header),
                 repos: Vec::new(),
@@ -64,9 +64,9 @@ impl ReporterSet<ReposAddable> {
 
     /// Enables features that reduce flickering of the output but require the number of displayed
     /// progress indicators to remain constant.
-    pub fn lock_repos(self) -> ReporterSet<ReposLocked> {
+    pub fn lock_repos(self) -> Reporter<ReposLocked> {
         self.0.mp.set_move_cursor(true);
-        ReporterSet(self.0, PhantomData)
+        Reporter(self.0, PhantomData)
     }
 
     fn new_bar_in(mp: &MultiProgress) -> ProgressBar {
@@ -76,7 +76,7 @@ impl ReporterSet<ReposAddable> {
     }
 }
 
-impl<K: reporterset::Kind> ReporterSet<K> {
+impl<K: reporterkind::Kind> Reporter<K> {
     pub fn finish(mut self, sigil: &'static str, msg: impl Into<Cow<'static, str>>) {
         self.0.head.finish(sigil, msg);
         for mut repo in self.0.repos {

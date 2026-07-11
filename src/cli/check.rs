@@ -5,7 +5,7 @@ use futures::StreamExt;
 use crate::borg::{self, Event, LogLevel, Progress};
 use crate::child::{self, Child};
 use crate::config::{Config, RepoConfig};
-use crate::reporting::{RepoReporter, ReporterSet, Widget};
+use crate::reporting::{RepoReporter, Reporter, Widget};
 
 #[derive(clap::Args)]
 pub struct Args {
@@ -25,17 +25,17 @@ pub async fn main(args: Args) -> child::Result<()> {
         config.select_repos_or_die(&args.repositories).collect()
     };
 
-    let mut reporter_set = ReporterSet::new(Widget::text("Checking repositories…"));
+    let mut reporter = Reporter::new(Widget::text("Checking repositories…"));
 
     let spawns: Vec<_> = repos
         .into_iter()
         .map(|(name, repo)| {
-            let reporter = reporter_set.add_repo(name.to_owned(), Widget::blank());
+            let reporter = reporter.add_repo(name.to_owned(), Widget::blank());
             tokio::spawn(run(repo.clone(), reporter, args.repository_only))
         })
         .collect();
 
-    let reporter_set = reporter_set.lock_repos();
+    let reporter = reporter.lock_repos();
 
     let mut child_err = None;
     for spawn in spawns {
@@ -47,11 +47,11 @@ pub async fn main(args: Args) -> child::Result<()> {
 
     match child_err {
         None => {
-            reporter_set.finish("✓", "Confirmed all repositories are valid.");
+            reporter.finish("✓", "Confirmed all repositories are valid.");
             Ok(())
         }
         Some(err) => {
-            reporter_set.finish("✗", "Found issues in repositories!");
+            reporter.finish("✗", "Found issues in repositories!");
             Err(err)
         }
     }

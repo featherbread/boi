@@ -12,7 +12,7 @@ use thiserror::Error;
 use tokio::fs;
 
 use crate::child::{self, Child};
-use crate::reporting::{ReporterSet, Widget};
+use crate::reporting::{Reporter, Widget};
 
 /// Constructs an array where all of the contained values are coerced into [`OsStr`] slices.
 ///
@@ -33,17 +33,17 @@ pub async fn in_backup_root<F, T>(args: Args, fut: F) -> T
 where
     F: Future<Output = T>,
 {
-    let reporter_set = ReporterSet::new(Widget::text("Creating APFS snapshot…")).lock_repos();
+    let reporter = Reporter::new(Widget::text("Creating APFS snapshot…")).lock_repos();
     let cleanup = match enter_snapshot(args).await {
         Ok((snapshot_date, cleanup)) => {
-            reporter_set.finish(
+            reporter.finish(
                 "✓",
                 format!("Created and mounted APFS snapshot {snapshot_date}."),
             );
             cleanup
         }
         Err(err) => {
-            reporter_set.finish(
+            reporter.finish(
                 "✗",
                 format!("Failed to create APFS snapshot ({err}); you should look at that."),
             );
@@ -53,14 +53,14 @@ where
 
     let result = fut.await;
 
-    let reporter_set = ReporterSet::new(Widget::text("Unmounting APFS snapshot…")).lock_repos();
+    let reporter = Reporter::new(Widget::text("Unmounting APFS snapshot…")).lock_repos();
     match cleanup.await {
         Ok(action) => {
-            reporter_set.finish("✓", action.to_string());
+            reporter.finish("✓", action.to_string());
             result
         }
         Err(err) => {
-            reporter_set.finish(
+            reporter.finish(
                 "✗",
                 format!("Failed to clean up APFS snapshot ({err}); you should look at that."),
             );
