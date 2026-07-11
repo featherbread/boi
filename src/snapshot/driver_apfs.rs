@@ -1,6 +1,5 @@
 use std::env;
 use std::ffi::{CStr, CString, OsStr, OsString};
-use std::fmt::Display;
 use std::io;
 use std::mem::MaybeUninit;
 use std::os::unix::ffi::OsStrExt;
@@ -34,10 +33,8 @@ where
 {
     let reporter = Reporter::new(Widget::text("Creating APFS snapshot…")).lock_repos();
     let cleanup = match enter_snapshot(args).await {
-        Ok((snapshot_date, cleanup)) => {
-            reporter.succeed(format_args!(
-                "Created and mounted APFS snapshot {snapshot_date}."
-            ));
+        Ok(Snapshot { date, cleanup }) => {
+            reporter.succeed(format_args!("Created and mounted APFS snapshot {date}.",));
             cleanup
         }
         Err(err) => {
@@ -52,7 +49,10 @@ where
     let reporter = Reporter::new(Widget::text("Unmounting APFS snapshot…")).lock_repos();
     match cleanup.await {
         Ok(action) => {
-            reporter.succeed(action);
+            reporter.succeed(match action {
+                Cleanup::Kept => "Unmounted APFS snapshot; keeping per your request.",
+                Cleanup::Deleting => "Unmounted APFS snapshot; deleting in background.",
+            });
             result
         }
         Err(err) => {
@@ -63,9 +63,19 @@ where
     }
 }
 
-async fn enter_snapshot(
-    args: Args,
-) -> Result<(String, impl Future<Output = Result<SnapshotAction, Error>>), Error> {
+type Result<T> = std::result::Result<T, Error>;
+
+struct Snapshot<F> {
+    date: String,
+    cleanup: F,
+}
+
+enum Cleanup {
+    Kept,
+    Deleting,
+}
+
+async fn enter_snapshot(args: Args) -> Result<Snapshot<impl Future<Output = Result<Cleanup>>>> {
     let home_abs = env::home_dir().ok_or(Error::HomeUnknown)?;
     let home_sub = home_abs.strip_prefix("/").or(Err(Error::HomeIsRelative))?;
     let mount_src = find_mount_base(&home_abs).map_err(Error::HomeMountBaseUnknown)?;
@@ -106,33 +116,36 @@ async fn enter_snapshot(
     // Returning a future for the cleanup removes lots of boilerplate compared to an RAII guard,
     // since we don't need to hand-write a struct for the values we care about sharing.
     // Any awkwardness of this approach is internal to this module.
-    Ok((snapshot_date.clone(), async move {
-        env::set_current_dir(&home_abs).map_err(|err| Error::ChdirFailed(home_abs, err))?;
+    Ok(Snapshot {
+        date: snapshot_date.clone(),
+        cleanup: async move {
+            env::set_current_dir(&home_abs).map_err(|err| Error::ChdirFailed(home_abs, err))?;
 
-        Child::from_cmdline(&os_strs!["diskutil", "unmount", mount_target.as_os_str()])
-            .null_output()
-            .complete()
-            .await
-            .map_err(|err| Error::UnmountFailed(mount_target.clone(), err))?;
+            Child::from_cmdline(&os_strs!["diskutil", "unmount", mount_target.as_os_str()])
+                .null_output()
+                .complete()
+                .await
+                .map_err(|err| Error::UnmountFailed(mount_target.clone(), err))?;
 
-        fs::remove_dir(&mount_target)
-            .await
-            .map_err(|err| Error::MountTargetCleanupFailed(mount_target, err))?;
+            fs::remove_dir(&mount_target)
+                .await
+                .map_err(|err| Error::MountTargetCleanupFailed(mount_target, err))?;
 
-        if args.apfs_keep_snapshot {
-            return Ok(SnapshotAction::Kept);
-        }
+            if args.apfs_keep_snapshot {
+                return Ok(Cleanup::Kept);
+            }
 
-        Child::from_cmdline(&["tmutil", "deletelocalsnapshots", &snapshot_date])
-            .null_input()
-            .null_output()
-            .null_timezone()
-            .spawn_and_background_after(Duration::from_millis(500))
-            .await
-            .map_err(|err| Error::SnapshotCleanupFailed(snapshot_date, err))?;
+            Child::from_cmdline(&["tmutil", "deletelocalsnapshots", &snapshot_date])
+                .null_input()
+                .null_output()
+                .null_timezone()
+                .spawn_and_background_after(Duration::from_millis(500))
+                .await
+                .map_err(|err| Error::SnapshotCleanupFailed(snapshot_date, err))?;
 
-        Ok(SnapshotAction::Deleting)
-    }))
+            Ok(Cleanup::Deleting)
+        },
+    })
 }
 
 fn find_mount_base(path: &Path) -> io::Result<OsString> {
@@ -156,7 +169,7 @@ fn find_mount_base(path: &Path) -> io::Result<OsString> {
     }
 }
 
-async fn create_local_snapshot() -> Result<String, Error> {
+async fn create_local_snapshot() -> Result<String> {
     let out = Child::from_cmdline(&["tmutil", "localsnapshot"])
         .null_timezone()
         .capture_output()
@@ -171,24 +184,6 @@ async fn create_local_snapshot() -> Result<String, Error> {
     {
         Some(date) => Ok(date.to_owned()),
         None => Err(Error::SnapshotMissingDate),
-    }
-}
-
-enum SnapshotAction {
-    Kept,
-    Deleting,
-}
-
-impl Display for SnapshotAction {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SnapshotAction::Kept => {
-                f.write_str("Unmounted APFS snapshot; keeping per your request.")
-            }
-            SnapshotAction::Deleting => {
-                f.write_str("Unmounted APFS snapshot; deleting in background.")
-            }
-        }
     }
 }
 
