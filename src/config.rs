@@ -42,6 +42,10 @@ pub struct RepoConfig {
     /// The path to the borg binary on the remote host, i.e. `$BORG_REMOTE_PATH`.
     /// Required by some Borg hosting services.
     remote_path: Option<String>,
+
+    /// Allow `boi prune --profile=aggressive` on this repo.
+    #[serde(default)]
+    allow_aggressive_prune: bool,
 }
 
 impl Config {
@@ -175,6 +179,10 @@ impl RepoConfig {
 
     pub fn repo_url(&self) -> &str {
         &self.repo_url
+    }
+
+    pub fn allow_aggressive_prune(&self) -> bool {
+        self.allow_aggressive_prune
     }
 }
 

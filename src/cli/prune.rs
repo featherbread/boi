@@ -43,6 +43,10 @@ pub async fn main(args: Args) -> child::Result<()> {
         None => config.one_or_die().1,
     };
 
+    if matches!(args.profile, Profile::Aggressive) && !repo.allow_aggressive_prune() {
+        die!("Refusing to aggressively prune this repo.");
+    }
+
     let mut base_cmdline = vec!["borg", "prune", "-v", "--list"];
     match args.profile {
         Profile::Normal => base_cmdline.extend([
