@@ -37,9 +37,7 @@ mod reporterset {
 impl ReporterSet<ReposAddable> {
     pub fn new(header: Widget) -> Self {
         let mp = MultiProgress::new();
-        let head_bar = mp.add(ProgressBar::no_length());
-        head_bar.enable_steady_tick(TICK_INTERVAL);
-
+        let head_bar = Self::new_bar_in(&mp);
         Self(
             ReporterSetState {
                 mp,
@@ -51,12 +49,9 @@ impl ReporterSet<ReposAddable> {
     }
 
     pub fn add_repo(&mut self, name: String, header: Widget) -> RepoReporter {
-        let bar = self.0.mp.add(ProgressBar::no_length());
-        bar.enable_steady_tick(TICK_INTERVAL);
-
         let mut repo = RepoReporter(Arc::new(RwLock::new(RepoReporterState {
             mp: self.0.mp.clone(),
-            bar,
+            bar: Self::new_bar_in(&self.0.mp),
             name,
             sigil: None,
             header,
@@ -64,7 +59,6 @@ impl ReporterSet<ReposAddable> {
             did_once: false,
             current_style: None,
         })));
-
         repo.post_message("Starting up…");
         repo
     }
@@ -74,6 +68,12 @@ impl ReporterSet<ReposAddable> {
     pub fn lock_repos(self) -> ReporterSet<ReposLocked> {
         self.0.mp.set_move_cursor(true);
         ReporterSet(self.0, PhantomData)
+    }
+
+    fn new_bar_in(mp: &MultiProgress) -> ProgressBar {
+        let bar = mp.add(ProgressBar::no_length());
+        bar.enable_steady_tick(TICK_INTERVAL);
+        bar
     }
 }
 
