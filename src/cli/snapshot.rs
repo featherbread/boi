@@ -93,6 +93,8 @@ pub async fn main(args: Args) -> child::Result<()> {
             })
             .collect();
 
+        let reporter_set = reporter_set.lock_repos();
+
         all_stats
             .lock()
             .unwrap()

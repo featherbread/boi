@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 use std::fmt::{self, Display};
 use std::io::Write;
+use std::marker::PhantomData;
 use std::mem::{self, Discriminant};
 use std::ops::ControlFlow;
 use std::sync::{Arc, RwLock};
@@ -15,31 +16,46 @@ use crate::child;
 
 const TICK_INTERVAL: Duration = Duration::from_millis(100);
 
-pub struct ReporterSet {
+#[repr(transparent)]
+pub struct ReporterSet<K: reporterset::Kind>(ReporterSetState, PhantomData<K>);
+
+struct ReporterSetState {
     mp: MultiProgress,
     head: HeadReporter,
     repos: Vec<RepoReporter>,
 }
 
-impl ReporterSet {
+pub enum ReposAddable {}
+pub enum ReposLocked {}
+
+mod reporterset {
+    pub trait Kind {}
+    impl Kind for super::ReposAddable {}
+    impl Kind for super::ReposLocked {}
+}
+
+impl ReporterSet<ReposAddable> {
     pub fn new(header: Widget) -> Self {
         let mp = MultiProgress::new();
         let head_bar = mp.add(ProgressBar::no_length());
         head_bar.enable_steady_tick(TICK_INTERVAL);
 
-        Self {
-            mp,
-            head: HeadReporter::new_with_bar(head_bar, header),
-            repos: Vec::new(),
-        }
+        Self(
+            ReporterSetState {
+                mp,
+                head: HeadReporter::new_with_bar(head_bar, header),
+                repos: Vec::new(),
+            },
+            PhantomData,
+        )
     }
 
     pub fn add_repo(&mut self, name: String, header: Widget) -> RepoReporter {
-        let bar = self.mp.add(ProgressBar::no_length());
+        let bar = self.0.mp.add(ProgressBar::no_length());
         bar.enable_steady_tick(TICK_INTERVAL);
 
         let mut repo = RepoReporter(Arc::new(RwLock::new(RepoReporterState {
-            mp: self.mp.clone(),
+            mp: self.0.mp.clone(),
             bar,
             name,
             sigil: None,
@@ -53,18 +69,30 @@ impl ReporterSet {
         repo
     }
 
+    /// Enables features that reduce flickering of the output but require the number of displayed
+    /// progress indicators to remain constant.
+    pub fn lock_repos(self) -> ReporterSet<ReposLocked> {
+        self.0.mp.set_move_cursor(true);
+        ReporterSet(self.0, PhantomData)
+    }
+}
+
+impl<K: reporterset::Kind> ReporterSet<K> {
     pub fn finish(mut self, sigil: &'static str, msg: impl Into<Cow<'static, str>>) {
-        self.head.finish(sigil, msg);
-        for mut repo in self.repos {
+        self.0.head.finish(sigil, msg);
+        for mut repo in self.0.repos {
             repo.finish_once("⚠", "Final status unknown.");
         }
 
-        let _ = self.mp.clear();
+        let _ = self.0.mp.clear();
         let (width, height) = Term::stdout().size();
         let target = indicatif::InMemoryTerm::new(width, height);
-        self.mp
+        self.0
+            .mp
             .set_draw_target(ProgressDrawTarget::term_like(Box::new(target.clone())));
-        self.mp.suspend(|| {});
+
+        // This seems to reliably force a draw to the in-memory terminal.
+        self.0.mp.suspend(|| {});
 
         let _ = Term::stdout().write_all(target.contents().as_bytes());
         let _ = Term::stdout().write_all(b"\n");

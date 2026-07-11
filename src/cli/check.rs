@@ -35,6 +35,8 @@ pub async fn main(args: Args) -> child::Result<()> {
         })
         .collect();
 
+    let reporter_set = reporter_set.lock_repos();
+
     let mut child_err = None;
     for spawn in spawns {
         let result = spawn.await.unwrap();
