@@ -23,7 +23,6 @@ pub struct Reporter<K: reporterkind::Kind>(ReporterState, PhantomData<K>);
 struct ReporterState {
     mp: MultiProgress,
     head: HeadReporter,
-    repos: Vec<RepoReporter>,
 }
 
 pub enum ReposAddable {}
@@ -43,7 +42,6 @@ impl Reporter<ReposAddable> {
             ReporterState {
                 mp,
                 head: HeadReporter::new_with_bar(head_bar, header),
-                repos: Vec::new(),
             },
             PhantomData,
         )
@@ -97,10 +95,8 @@ impl<K: reporterkind::Kind> Reporter<K> {
     }
 
     fn finish(mut self, sigil: &'static str, msg: String) {
+        // TODO: Nothing statically forces the repos to be finished as well.
         self.0.head.finish(sigil, msg);
-        for mut repo in self.0.repos {
-            repo.finish_once("⚠", "Final status unknown.");
-        }
 
         // As of writing, indicatif finishes non-cleared bars with padding between the right edge
         // of the progress output and the edge of the terminal, which causes odd rewrapping when
