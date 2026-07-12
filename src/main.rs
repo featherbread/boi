@@ -11,7 +11,6 @@ mod cli;
 mod config;
 mod json;
 mod reporting;
-mod signals;
 mod snapshot;
 
 #[tokio::main(flavor = "current_thread")]

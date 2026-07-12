@@ -8,7 +8,8 @@ use std::time::Duration;
 use tokio::process::ChildStdout;
 
 use crate::config::{Config, RepoConfig};
-use crate::signals;
+
+mod signals;
 
 /// A result type for execution of a [`Child`].
 pub type Result<T> = std::result::Result<T, Error>;
