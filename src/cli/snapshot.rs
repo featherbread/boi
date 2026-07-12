@@ -222,8 +222,7 @@ pub struct ArchiveStatsDisplay(SharedArchiveStats);
 
 impl Display for ArchiveStatsDisplay {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let stats = self.0.read().unwrap();
-        write!(f, "{stats}")
+        self.0.read().unwrap().fmt(f)
     }
 }
 
