@@ -96,18 +96,8 @@ async fn run(
         .await;
 
     match &child_result {
-        Ok(()) => {
-            reporter.succeed("Repository is valid");
-        }
-        Err(child::Error::Killed) => {
-            reporter.fail("Borg terminated abnormally");
-        }
-        Err(child::Error::ExitCode(code)) => {
-            reporter.fail(format_args!("Borg exited with code {code}"));
-        }
-        Err(child::Error::Launch(err)) => {
-            reporter.fail(format_args!("Failed to wait for Borg: {err}"));
-        }
+        Ok(()) => reporter.succeed("Repository is valid"),
+        Err(err) => reporter.fail_from_child(err),
     };
 
     child_result

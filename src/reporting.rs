@@ -257,6 +257,20 @@ impl RepoReporter {
         self.finish("✗", msg.to_string());
     }
 
+    pub fn fail_from_child(self, err: &child::Error) {
+        match err {
+            child::Error::Killed => {
+                self.fail("Terminated abnormally");
+            }
+            child::Error::ExitCode(code) => {
+                self.fail(format_args!("Exited with code {code}"));
+            }
+            child::Error::Launch(err) => {
+                self.fail(format_args!("Failed to wait: {err}"));
+            }
+        }
+    }
+
     fn finish(mut self, sigil: &'static str, msg: String) {
         self.sigil = Some(sigil);
         self.report = Report::Message(Cow::Owned(msg));
