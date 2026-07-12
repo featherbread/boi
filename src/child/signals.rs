@@ -53,7 +53,8 @@ pub fn ignore() -> IgnoreGuard {
 
 impl Drop for IgnoreGuard {
     fn drop(&mut self) {
-        IGNORE_COUNT.fetch_sub(1, Ordering::Relaxed);
+        let previous = IGNORE_COUNT.fetch_sub(1, Ordering::Relaxed);
+        debug_assert!(previous > 0, "ignore count should not underflow");
     }
 }
 
