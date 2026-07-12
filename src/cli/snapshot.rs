@@ -201,22 +201,27 @@ impl Task {
             .wait_for_spawn(&mut spawn, "Waiting for Borg to exit…")
             .await;
 
-        let (sigil, message) = match &child_result {
-            Ok(()) => (
-                "✓",
-                format!(
+        let reporter = self.reporter;
+        match &child_result {
+            Ok(()) => {
+                reporter.succeed(format_args!(
                     "Created archive{suffix}",
                     suffix = duration
                         .map(|d| format!(" in {d} seconds"))
                         .unwrap_or_default(),
-                ),
-            ),
-            Err(child::Error::Killed) => ("✗", "Borg terminated abnormally".to_owned()),
-            Err(child::Error::ExitCode(code)) => ("✗", format!("Borg exited with code {code}")),
-            Err(child::Error::Launch(err)) => ("✗", format!("Failed to wait for Borg: {err}")),
+                ));
+            }
+            Err(child::Error::Killed) => {
+                reporter.fail("Borg terminated abnormally");
+            }
+            Err(child::Error::ExitCode(code)) => {
+                reporter.fail(format_args!("Borg exited with code {code}"));
+            }
+            Err(child::Error::Launch(err)) => {
+                reporter.fail(format_args!("Failed to wait for Borg: {err}"));
+            }
         };
 
-        self.reporter.finish_once(sigil, message);
         child_result
     }
 }

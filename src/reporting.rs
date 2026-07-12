@@ -10,7 +10,9 @@ use std::time::{self, Duration};
 
 use console::Term;
 use indicatif::style::ProgressTracker;
-use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressState, ProgressStyle};
+use indicatif::{
+    InMemoryTerm, MultiProgress, ProgressBar, ProgressDrawTarget, ProgressState, ProgressStyle,
+};
 
 use crate::borg::{Event, ProgressPercent};
 use crate::child;
@@ -23,6 +25,10 @@ pub struct Reporter<K: reporterkind::Kind>(ReporterState, PhantomData<K>);
 struct ReporterState {
     mp: MultiProgress,
     head: HeadReporter,
+
+    /// Clones of every [`ProgressBar`] attached to this reporter, to ensure that
+    /// [premature drops](MultiProgress#premature-drops) will never be an issue.
+    bars: Vec<ProgressBar>,
 }
 
 pub enum ReposAddable {}
@@ -38,18 +44,22 @@ impl Reporter<ReposAddable> {
     pub fn new(header: Widget) -> Self {
         let mp = MultiProgress::new();
         let head_bar = Self::new_bar_in(&mp);
+        let bars = vec![head_bar.clone()];
         Self(
             ReporterState {
                 mp,
                 head: HeadReporter::new_with_bar(head_bar, header),
+                bars,
             },
             PhantomData,
         )
     }
 
     pub fn add_repo(&mut self, name: String, header: Widget) -> RepoReporter {
+        let bar = Self::new_bar_in(&self.0.mp);
+        self.0.bars.push(bar.clone());
         let mut repo = RepoReporter {
-            bar: Self::new_bar_in(&self.0.mp),
+            bar,
             name,
             sigil: None,
             header,
@@ -94,7 +104,7 @@ impl<K: reporterkind::Kind> Reporter<K> {
         process::exit(1);
     }
 
-    fn finish(mut self, sigil: &'static str, msg: String) {
+    fn finish(self, sigil: &'static str, msg: String) {
         // TODO: Nothing statically forces the repos to be finished as well.
         self.0.head.finish(sigil, msg);
 
@@ -107,7 +117,7 @@ impl<K: reporterkind::Kind> Reporter<K> {
         // stdout, and dump out the resulting contents, which don't include that same padding.
         let mut stdout = Term::stdout();
         let (width, height) = stdout.size();
-        let target = indicatif::InMemoryTerm::new(width, height);
+        let target = InMemoryTerm::new(width, height);
         let _ = self.0.mp.clear();
         self.0
             .mp
@@ -139,7 +149,7 @@ impl HeadReporter {
         head
     }
 
-    fn finish(&mut self, sigil: &'static str, msg: String) {
+    fn finish(mut self, sigil: &'static str, msg: String) {
         self.sigil = Some(sigil);
         self.header = Widget::text(msg);
         self.refresh_bar();
@@ -239,14 +249,20 @@ impl RepoReporter {
         }
     }
 
-    pub fn finish_once(&mut self, sigil: &'static str, msg: impl Into<Cow<'static, str>>) {
-        if self.sigil.is_none() {
-            self.sigil = Some(sigil);
-            self.report = Report::Message(msg.into());
-            self.current_style = None; // Force a restyle of the bar.
-            self.refresh_bar();
-            self.bar.finish();
-        }
+    pub fn succeed(self, msg: impl Display) {
+        self.finish("✓", msg.to_string());
+    }
+
+    pub fn fail(self, msg: impl Display) {
+        self.finish("✗", msg.to_string());
+    }
+
+    fn finish(mut self, sigil: &'static str, msg: String) {
+        self.sigil = Some(sigil);
+        self.report = Report::Message(Cow::Owned(msg));
+        self.current_style = None; // Force a restyle of the bar.
+        self.refresh_bar();
+        self.bar.finish();
     }
 
     fn refresh_bar(&mut self) {

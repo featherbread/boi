@@ -95,13 +95,20 @@ async fn run(
         .wait_for_spawn(&mut spawn, "Waiting for Borg to exit…")
         .await;
 
-    let (sigil, message) = match &child_result {
-        Ok(()) => ("✓", "Repository is valid".to_owned()),
-        Err(child::Error::ExitCode(code)) => ("✗", format!("Borg exited with code {code}")),
-        Err(child::Error::Killed) => ("✗", "Borg terminated abnormally".to_owned()),
-        Err(child::Error::Launch(err)) => ("✗", format!("Failed to wait for Borg: {err}")),
+    match &child_result {
+        Ok(()) => {
+            reporter.succeed("Repository is valid");
+        }
+        Err(child::Error::Killed) => {
+            reporter.fail("Borg terminated abnormally");
+        }
+        Err(child::Error::ExitCode(code)) => {
+            reporter.fail(format_args!("Borg exited with code {code}"));
+        }
+        Err(child::Error::Launch(err)) => {
+            reporter.fail(format_args!("Failed to wait for Borg: {err}"));
+        }
     };
 
-    reporter.finish_once(sigil, message);
     child_result
 }
