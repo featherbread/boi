@@ -15,9 +15,9 @@ use crate::config::{Config, RepoConfig};
 use crate::reporting::{RepoReporter, Reporter, Widget};
 
 #[cfg(boi_has_driver = "apfs")]
-use crate::snapshot::driver_apfs;
+use crate::drivers::apfs;
 #[cfg(boi_has_driver = "none")]
-use crate::snapshot::driver_none;
+use crate::drivers::none;
 
 #[derive(clap::Args)]
 pub struct Args {
@@ -31,7 +31,7 @@ pub struct Args {
 
     #[cfg(boi_has_driver = "apfs")]
     #[command(flatten)]
-    apfs: driver_apfs::Args,
+    apfs: apfs::Args,
 }
 
 #[derive(Clone, clap::ValueEnum)]
@@ -126,9 +126,9 @@ pub async fn main(args: Args) -> child::Result<()> {
 
     match args.driver {
         #[cfg(boi_has_driver = "apfs")]
-        DriverKind::Apfs => driver_apfs::in_backup_root(args.apfs, run).await,
+        DriverKind::Apfs => apfs::in_backup_root(args.apfs, run).await,
         #[cfg(boi_has_driver = "none")]
-        DriverKind::None => driver_none::in_backup_root(run).await,
+        DriverKind::None => none::in_backup_root(run).await,
     }
 }
 

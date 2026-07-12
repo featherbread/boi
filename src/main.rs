@@ -9,9 +9,9 @@ mod borg;
 mod child;
 mod cli;
 mod config;
+mod drivers;
 mod json;
 mod reporting;
-mod snapshot;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
