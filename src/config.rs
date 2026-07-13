@@ -165,6 +165,9 @@ impl GlobalConfig {
 
 impl RepoConfig {
     pub fn env(&self) -> impl Iterator<Item = (&'static str, &str)> {
+        // NOTE: We force the user to make these valid UTF-8, which may be stricter than necessary.
+        // Borg is _probably_ robust about treating them as byte strings rather than Unicode
+        // strings, but I don't know for sure.
         IntoIterator::into_iter([
             ("BORG_REPO", self.repo_url.as_str()),
             ("BORG_PASSCOMMAND", self.passphrase_command.as_str()),
