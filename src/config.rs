@@ -131,9 +131,8 @@ impl Config {
             die!("Requested unknown repos; what do I operate on?",);
         }
 
-        let selected_set = &want_set & &have_set;
         self.repos()
-            .filter(move |(name, _)| selected_set.contains(name))
+            .filter(move |(name, _)| want_set.contains(name))
     }
 
     pub fn one_or_die(&self) -> (&str, &RepoConfig) {
