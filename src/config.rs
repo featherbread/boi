@@ -1,6 +1,5 @@
 use std::collections::HashSet;
 use std::ffi::OsString;
-use std::fmt::Display;
 use std::path::{Path, PathBuf};
 use std::{env, iter};
 
@@ -191,22 +190,22 @@ impl RepoConfig {
 #[derive(Error, Debug)]
 pub enum Error {
     /// The config file is missing or can't be opened.
+    #[error(transparent)]
     Open(#[from] io::Error),
-    /// The config file isn't valid TOML. Note that `toml::de::Error` has an unusual multi-line
-    /// `Display` impl that's best rendered with a blank line separating it from earlier text.
-    Parse(#[from] toml::de::Error),
-    /// The config file failed to define any repos.
-    NoRepos,
-}
 
-impl Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Open(err) => Display::fmt(err, f),
-            Self::Parse(err) => Display::fmt(err.message(), f),
-            Self::NoRepos => f.write_str("no repos defined in config"),
-        }
-    }
+    /// The config file isn't valid TOML. Note that `toml::de::Error` has an unusual multi-line
+    /// `Display` impl that's best rendered with a blank line separating it from earlier text
+    /// (which the `Display` impl on this type does _not_ do).
+    #[error("{}", .0.message())]
+    Parse(
+        #[from]
+        #[source]
+        toml::de::Error,
+    ),
+
+    /// The config file failed to define any repos.
+    #[error("no repos defined in config")]
+    NoRepos,
 }
 
 impl Error {
