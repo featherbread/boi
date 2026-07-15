@@ -13,6 +13,7 @@ use indicatif::HumanBytes;
 use crate::borg::{self, ArchiveStats, Event, Progress};
 use crate::child::{self, Child};
 use crate::config::{Config, RepoConfig};
+use crate::drivers::BackupRoot;
 use crate::reporting::{RepoReporter, Reporter, Widget};
 
 #[cfg(boi_has_driver = "apfs")]
@@ -79,59 +80,56 @@ pub async fn main(args: Args) -> child::Result<()> {
         die!("System time is before the UNIX epoch; what are you doing?!?");
     };
 
-    let run = async move |path: PathBuf| {
-        let all_stats: Vec<SharedArchiveStats> = repos.iter().map(|_| Default::default()).collect();
+    let backup_root: Box<dyn BackupRoot> = match args.driver {
+        #[cfg(boi_has_driver = "apfs")]
+        DriverKind::Apfs => Box::new(apfs::prepare(args.apfs).await),
+        #[cfg(boi_has_driver = "none")]
+        DriverKind::None => Box::new(none::prepare().await),
+    };
 
-        let mut reporter =
-            Reporter::new(Widget::new(ArchiveStatsSummaryRunning(all_stats.clone())));
+    let all_stats: Vec<SharedArchiveStats> = repos.iter().map(|_| Default::default()).collect();
 
-        let tasks: Vec<_> = iter::zip(repos, &all_stats)
-            .map(|((name, repo), stats)| Task {
-                ts,
-                path: path.clone(),
-                repo: repo.clone(),
-                stats: Arc::clone(stats),
-                reporter: reporter.add_repo(
-                    name.to_owned(),
-                    Widget::new(ArchiveStatsDisplay(Arc::clone(stats))),
-                ),
-            })
-            .collect();
+    let mut reporter = Reporter::new(Widget::new(ArchiveStatsSummaryRunning(all_stats.clone())));
+    let tasks: Vec<_> = iter::zip(repos, &all_stats)
+        .map(|((name, repo), stats)| Task {
+            ts,
+            path: backup_root.path().to_owned(),
+            repo: repo.clone(),
+            stats: Arc::clone(stats),
+            reporter: reporter.add_repo(
+                name.to_owned(),
+                Widget::new(ArchiveStatsDisplay(Arc::clone(stats))),
+            ),
+        })
+        .collect();
 
-        let reporter = reporter.lock_repos();
+    let reporter = reporter.lock_repos();
+    let spawns: Vec<_> = tasks
+        .into_iter()
+        .map(|task| tokio::spawn(task.run()))
+        .collect();
 
-        let spawns: Vec<_> = tasks
-            .into_iter()
-            .map(|task| tokio::spawn(task.run()))
-            .collect();
-
-        let mut child_err = None;
-        for spawn in spawns {
-            let result = spawn.await.unwrap();
-            if let (Err(err), None) = (result, &mut child_err) {
-                child_err = Some(err);
-            }
+    let mut child_err = None;
+    for spawn in spawns {
+        let result = spawn.await.unwrap();
+        if let (Err(err), None) = (result, &mut child_err) {
+            child_err = Some(err);
         }
-
-        match child_err {
-            None => {
-                let stats = ArchiveStatsSummary(&all_stats);
-                reporter.succeed(format_args!("Archived {stats}."));
-                Ok(())
-            }
-            Some(err) => {
-                reporter.fail("Failed to archive to all repos.");
-                Err(err)
-            }
+    }
+    let result = match child_err {
+        None => {
+            let stats = ArchiveStatsSummary(&all_stats);
+            reporter.succeed(format_args!("Archived {stats}."));
+            Ok(())
+        }
+        Some(err) => {
+            reporter.fail("Failed to archive to all repos.");
+            Err(err)
         }
     };
 
-    match args.driver {
-        #[cfg(boi_has_driver = "apfs")]
-        DriverKind::Apfs => apfs::with_backup_root(args.apfs, run).await,
-        #[cfg(boi_has_driver = "none")]
-        DriverKind::None => none::with_backup_root(run).await,
-    }
+    backup_root.cleanup().await;
+    result
 }
 
 struct Task {

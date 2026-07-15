@@ -4,6 +4,7 @@ use std::io;
 use std::mem::MaybeUninit;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::time::Duration;
 
 use thiserror::Error;
@@ -27,126 +28,129 @@ pub struct Args {
     apfs_keep_snapshot: bool,
 }
 
-pub async fn with_backup_root<O, F, T>(args: Args, op: O) -> T
-where
-    O: FnOnce(PathBuf) -> F,
-    F: Future<Output = T>,
-{
+pub async fn prepare(args: Args) -> Snapshot {
     let reporter = Reporter::new(Widget::text("Creating APFS snapshot…")).lock_repos();
-    let snapshot = match enter_snapshot(args).await {
+    match Snapshot::create_and_mount(args).await {
         Ok(snapshot) => {
-            reporter.succeed(format_args!(
-                "Created and mounted APFS snapshot {}.",
-                snapshot.date,
-            ));
+            let date = &snapshot.date;
+            reporter.succeed(format_args!("Created and mounted APFS snapshot {date}."));
             snapshot
         }
-        Err(err) => {
-            reporter.die(format_args!(
-                "Failed to create APFS snapshot ({err}); you should look at that."
-            ));
-        }
-    };
-
-    let result = op(snapshot.path).await;
-
-    let reporter = Reporter::new(Widget::text("Unmounting APFS snapshot…")).lock_repos();
-    match snapshot.cleanup.await {
-        Ok(action) => {
-            reporter.succeed(match action {
-                Cleanup::Kept => "Unmounted APFS snapshot; keeping per your request.",
-                Cleanup::Deleting => "Unmounted APFS snapshot; deleting in background.",
-            });
-            result
-        }
-        Err(err) => {
-            reporter.die(format_args!(
-                "Failed to clean up APFS snapshot ({err}); you should look at that."
-            ));
-        }
+        Err(err) => reporter.die(format_args!(
+            "Failed to create APFS snapshot ({err}); you should look at that."
+        )),
     }
 }
 
-type Result<T> = std::result::Result<T, Error>;
+async fn unprepare(snapshot: Snapshot) {
+    let reporter = Reporter::new(Widget::text("Unmounting APFS snapshot…")).lock_repos();
+    if let Err(err) = snapshot.unmount().await {
+        reporter.die(format_args!(
+            "Failed to unmount APFS snapshot ({err}); you should look at that."
+        ));
+    }
+    if snapshot.keep {
+        reporter.succeed("Unmounted APFS snapshot; keeping per your request.");
+        return;
+    }
+    match snapshot.delete().await {
+        Ok(()) => reporter.succeed("Unmounted APFS snapshot; deleting in background."),
+        Err(err) => reporter.die(format_args!(
+            "Failed to delete APFS snapshot ({err}); you should look at that."
+        )),
+    }
+}
 
-struct Snapshot<F> {
-    path: PathBuf,
+pub struct Snapshot {
+    keep: bool,
     date: String,
-    cleanup: F,
+    mount_target: PathBuf,
+    full_path: PathBuf,
 }
 
-enum Cleanup {
-    Kept,
-    Deleting,
+impl super::BackupRoot for Snapshot {
+    fn path(&self) -> &Path {
+        &self.full_path
+    }
+
+    fn cleanup(self: Box<Self>) -> Pin<Box<dyn Future<Output = ()>>> {
+        Box::pin(unprepare(*self))
+    }
 }
 
-async fn enter_snapshot(args: Args) -> Result<Snapshot<impl Future<Output = Result<Cleanup>>>> {
-    let home_abs = env::home_dir().ok_or(Error::HomeUnknown)?;
-    let home_sub = home_abs.strip_prefix("/").or(Err(Error::HomeIsRelative))?;
-    let mount_src = find_mount_base(&home_abs).map_err(Error::HomeMountBaseUnknown)?;
+impl Snapshot {
+    async fn create_and_mount(args: Args) -> Result<Self> {
+        let home_abs = env::home_dir().ok_or(Error::HomeUnknown)?;
+        let home_sub = home_abs.strip_prefix("/").or(Err(Error::HomeIsRelative))?;
+        let mount_src = find_mount_base(&home_abs).map_err(Error::HomeMountBaseUnknown)?;
 
-    let snapshot_date = create_local_snapshot().await?;
-    let snapshot_id = format!("com.apple.TimeMachine.{snapshot_date}.local");
+        let snapshot_date = create_local_snapshot().await?;
+        let snapshot_id = format!("com.apple.TimeMachine.{snapshot_date}.local");
 
-    // The APFS driver only makes sense on Apple platforms, which default to providing per-user
-    // temporary directories with secure read and write permissions. The PID is used solely to
-    // limit collisions with previous boi instances that failed to fully clean up this state,
-    // and NOT as a dangerously defective strategy for generating unpredictable temporary paths.
-    let mount_target = env::temp_dir().join(format!(
-        "{pkg}-apfs-{pid}",
-        pkg = env!("CARGO_PKG_NAME"),
-        pid = std::process::id()
-    ));
+        // The APFS driver only makes sense on Apple platforms, which default to providing per-user
+        // temporary directories with secure read and write permissions. The PID is used solely to
+        // limit collisions with previous boi instances that failed to fully clean up this state,
+        // and NOT as a dangerously defective strategy for generating unpredictable temporary paths.
+        let mount_target = env::temp_dir().join(format!(
+            "{pkg}-apfs-{pid}",
+            pkg = env!("CARGO_PKG_NAME"),
+            pid = std::process::id()
+        ));
 
-    fs::create_dir(&mount_target)
-        .await
-        .map_err(Error::MountTargetCreateFailed)?;
+        fs::create_dir(&mount_target)
+            .await
+            .map_err(Error::MountTargetCreateFailed)?;
 
-    let mount_cmdline = os_strs![
-        "mount_apfs",
-        "-s",
-        &snapshot_id,
-        &mount_src,
-        mount_target.as_os_str()
-    ];
-    Child::from_cmdline(&mount_cmdline)
+        let mount_cmdline = os_strs![
+            "mount_apfs",
+            "-s",
+            &snapshot_id,
+            &mount_src,
+            mount_target.as_os_str()
+        ];
+        Child::from_cmdline(&mount_cmdline)
+            .null_output()
+            .complete()
+            .await
+            .map_err(Error::MountFailed)?;
+
+        let full_path = mount_target.join(home_sub);
+
+        Ok(Self {
+            keep: args.apfs_keep_snapshot,
+            date: snapshot_date,
+            mount_target,
+            full_path,
+        })
+    }
+
+    async fn unmount(&self) -> Result<()> {
+        Child::from_cmdline(&os_strs![
+            "diskutil",
+            "unmount",
+            self.mount_target.as_os_str()
+        ])
         .null_output()
         .complete()
         .await
-        .map_err(Error::MountFailed)?;
+        .map_err(|err| Error::UnmountFailed(self.mount_target.clone(), err))?;
 
-    // Returning a future for the cleanup removes lots of boilerplate compared to an RAII guard,
-    // since we don't need to hand-write a struct for the values we care about sharing.
-    // Any awkwardness of this approach is internal to this module.
-    Ok(Snapshot {
-        path: mount_target.join(home_sub),
-        date: snapshot_date.clone(),
-        cleanup: async move {
-            Child::from_cmdline(&os_strs!["diskutil", "unmount", mount_target.as_os_str()])
-                .null_output()
-                .complete()
-                .await
-                .map_err(|err| Error::UnmountFailed(mount_target.clone(), err))?;
+        fs::remove_dir(&self.mount_target)
+            .await
+            .map_err(|err| Error::MountTargetCleanupFailed(self.mount_target.clone(), err))?;
 
-            fs::remove_dir(&mount_target)
-                .await
-                .map_err(|err| Error::MountTargetCleanupFailed(mount_target, err))?;
+        Ok(())
+    }
 
-            if args.apfs_keep_snapshot {
-                return Ok(Cleanup::Kept);
-            }
-
-            Child::from_cmdline(&["tmutil", "deletelocalsnapshots", &snapshot_date])
-                .null_input()
-                .null_output()
-                .null_timezone()
-                .spawn_and_background_after(Duration::from_millis(500))
-                .await
-                .map_err(|err| Error::SnapshotCleanupFailed(snapshot_date, err))?;
-
-            Ok(Cleanup::Deleting)
-        },
-    })
+    async fn delete(&self) -> Result<()> {
+        Child::from_cmdline(&["tmutil", "deletelocalsnapshots", &self.date])
+            .null_input()
+            .null_output()
+            .null_timezone()
+            .spawn_and_background_after(Duration::from_millis(500))
+            .await
+            .map_err(|err| Error::SnapshotCleanupFailed(self.date.clone(), err))
+    }
 }
 
 fn find_mount_base(path: &Path) -> io::Result<OsString> {
@@ -187,6 +191,8 @@ async fn create_local_snapshot() -> Result<String> {
         None => Err(Error::SnapshotMissingDate),
     }
 }
+
+type Result<T> = std::result::Result<T, Error>;
 
 // TODO: child::Error should include the command line, instead of me rewriting each command here
 // where it could get stale.
