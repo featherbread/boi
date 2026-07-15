@@ -1,16 +1,13 @@
 use std::env;
+use std::path::PathBuf;
 
-pub async fn in_backup_root<F, T>(fut: F) -> T
+pub async fn with_backup_root<O, F, T>(fut: O) -> T
 where
+    O: FnOnce(PathBuf) -> F,
     F: Future<Output = T>,
 {
-    let Some(home) = env::home_dir() else {
-        die!("Can't find $HOME; what do I back up?");
-    };
-
-    if let Err(err) = env::set_current_dir(home) {
-        die!("Can't change to $HOME ({err}); I won't be able to back it up.");
+    match env::home_dir() {
+        Some(home) => fut(home).await,
+        None => die!("Can't find $HOME; what do I back up?"),
     }
-
-    fut.await
 }

@@ -2,6 +2,7 @@ use std::ffi::OsStr;
 use std::fmt::{self, Display};
 use std::io;
 use std::os::fd::OwnedFd;
+use std::path::Path;
 use std::process::{ExitStatus, Output, Stdio};
 use std::time::Duration;
 
@@ -72,6 +73,12 @@ impl Child {
     /// Use this with caution, and avoid it on Borg commands.
     pub fn null_timezone(mut self) -> Self {
         self.timezone_nulled = true;
+        self
+    }
+
+    /// Changes the child process into a specific working directory.
+    pub fn working_directory(mut self, path: impl AsRef<Path>) -> Self {
+        self.pending_cmd.current_dir(path);
         self
     }
 

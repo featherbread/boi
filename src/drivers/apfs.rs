@@ -27,15 +27,19 @@ pub struct Args {
     apfs_keep_snapshot: bool,
 }
 
-pub async fn in_backup_root<F, T>(args: Args, fut: F) -> T
+pub async fn with_backup_root<O, F, T>(args: Args, op: O) -> T
 where
+    O: FnOnce(PathBuf) -> F,
     F: Future<Output = T>,
 {
     let reporter = Reporter::new(Widget::text("Creating APFS snapshot…")).lock_repos();
-    let cleanup = match enter_snapshot(args).await {
-        Ok(Snapshot { date, cleanup }) => {
-            reporter.succeed(format_args!("Created and mounted APFS snapshot {date}.",));
-            cleanup
+    let snapshot = match enter_snapshot(args).await {
+        Ok(snapshot) => {
+            reporter.succeed(format_args!(
+                "Created and mounted APFS snapshot {}.",
+                snapshot.date,
+            ));
+            snapshot
         }
         Err(err) => {
             reporter.die(format_args!(
@@ -44,10 +48,10 @@ where
         }
     };
 
-    let result = fut.await;
+    let result = op(snapshot.path).await;
 
     let reporter = Reporter::new(Widget::text("Unmounting APFS snapshot…")).lock_repos();
-    match cleanup.await {
+    match snapshot.cleanup.await {
         Ok(action) => {
             reporter.succeed(match action {
                 Cleanup::Kept => "Unmounted APFS snapshot; keeping per your request.",
@@ -66,6 +70,7 @@ where
 type Result<T> = std::result::Result<T, Error>;
 
 struct Snapshot<F> {
+    path: PathBuf,
     date: String,
     cleanup: F,
 }
@@ -110,17 +115,13 @@ async fn enter_snapshot(args: Args) -> Result<Snapshot<impl Future<Output = Resu
         .await
         .map_err(Error::MountFailed)?;
 
-    let backup_root = mount_target.join(home_sub);
-    env::set_current_dir(&backup_root).map_err(|err| Error::ChdirFailed(backup_root, err))?;
-
     // Returning a future for the cleanup removes lots of boilerplate compared to an RAII guard,
     // since we don't need to hand-write a struct for the values we care about sharing.
     // Any awkwardness of this approach is internal to this module.
     Ok(Snapshot {
+        path: mount_target.join(home_sub),
         date: snapshot_date.clone(),
         cleanup: async move {
-            env::set_current_dir(&home_abs).map_err(|err| Error::ChdirFailed(home_abs, err))?;
-
             Child::from_cmdline(&os_strs!["diskutil", "unmount", mount_target.as_os_str()])
                 .null_output()
                 .complete()
@@ -205,8 +206,6 @@ enum Error {
     MountTargetCreateFailed(io::Error),
     #[error("mount_apfs -s failed: {0}")]
     MountFailed(child::Error),
-    #[error("failed to chdir to {0}: {1}")]
-    ChdirFailed(PathBuf, io::Error),
     #[error("diskutil unmount {0} failed: {1}")]
     UnmountFailed(PathBuf, child::Error),
     #[error("failed to clean up {0}: {1}")]

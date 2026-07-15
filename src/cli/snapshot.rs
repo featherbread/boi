@@ -3,6 +3,7 @@ use std::env;
 use std::fmt::{self, Display};
 use std::iter;
 use std::ops::ControlFlow;
+use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime};
 
@@ -78,7 +79,7 @@ pub async fn main(args: Args) -> child::Result<()> {
         die!("System time is before the UNIX epoch; what are you doing?!?");
     };
 
-    let run = async move {
+    let run = async move |path: PathBuf| {
         let all_stats: Vec<SharedArchiveStats> = repos.iter().map(|_| Default::default()).collect();
 
         let mut reporter =
@@ -87,6 +88,7 @@ pub async fn main(args: Args) -> child::Result<()> {
         let tasks: Vec<_> = iter::zip(repos, &all_stats)
             .map(|((name, repo), stats)| Task {
                 ts,
+                path: path.clone(),
                 repo: repo.clone(),
                 stats: Arc::clone(stats),
                 reporter: reporter.add_repo(
@@ -126,14 +128,15 @@ pub async fn main(args: Args) -> child::Result<()> {
 
     match args.driver {
         #[cfg(boi_has_driver = "apfs")]
-        DriverKind::Apfs => apfs::in_backup_root(args.apfs, run).await,
+        DriverKind::Apfs => apfs::with_backup_root(args.apfs, run).await,
         #[cfg(boi_has_driver = "none")]
-        DriverKind::None => none::in_backup_root(run).await,
+        DriverKind::None => none::with_backup_root(run).await,
     }
 }
 
 struct Task {
     ts: Duration,
+    path: PathBuf,
     repo: RepoConfig,
     stats: SharedArchiveStats,
     reporter: RepoReporter,
@@ -160,6 +163,7 @@ impl Task {
         ];
         let (mut spawn, output) = Child::from_cmdline(&cmdline)
             .for_borg_repo(&self.repo)
+            .working_directory(self.path)
             .spawn_with_output()
             .await?;
 

@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
 
+# In the year 2026, jq is nearly as essential as awk or grep, and you have no
+# excuse not to have it installed in any kind of environment where you'd want
+# to run Borg interactively. I'll do you the favor of failing softly, though.
+jq -n --arg pwd "$(pwd)" \
+  '{"type": "log_message", "levelname": "INFO", "message": "Harness running in \($pwd)"}' \
+  2>/dev/null
+
 cd "$(dirname "${BASH_SOURCE[0]}")" || exit 3
 
 # This awk program emits Borg's JSON lines with delays that roughly simulate
