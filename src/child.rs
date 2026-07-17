@@ -76,7 +76,7 @@ impl Child {
         self
     }
 
-    /// Changes the child process into a specific working directory.
+    /// Changes the child into a specific working directory.
     pub fn working_directory(mut self, path: impl AsRef<Path>) -> Self {
         self.pending_cmd.current_dir(path);
         self
@@ -156,10 +156,10 @@ impl Child {
     async fn into_cmd(mut self) -> Result<tokio::process::Command> {
         // This is unlikely to fail in practice, since loading the config (or dying) is the first
         // thing most subcommands do. Treating it as Error::Launch means nobody has to deal with it
-        // as a special case, especially with the unusual toml::de::Error Display impl.
+        // as a special case.
         let config = Config::load()
             .await
-            .map_err(|_| Error::Launch(io::Error::other("failed to load boi configuration")))?;
+            .map_err(|err| Error::Launch(io::Error::other(err)))?;
 
         if self.timezone_nulled {
             self.pending_cmd.env_remove("TZ");
@@ -167,6 +167,9 @@ impl Child {
             self.pending_cmd.env("TZ", config.global().timezone());
         }
 
+        // The pending command has now grown up to become a real command.
+        // This move into a new binding is absolutely unnecessary from a technical standpoint,
+        // but represents and celebrates this wonderful metamorphosis.
         let cmd = self.pending_cmd;
         Ok(cmd)
     }
