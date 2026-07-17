@@ -1,7 +1,8 @@
 use std::collections::HashSet;
+use std::env;
 use std::ffi::OsString;
+use std::iter;
 use std::path::{Path, PathBuf};
-use std::{env, iter};
 
 use indexmap::IndexMap;
 use serde_derive::Deserialize;
