@@ -6,6 +6,7 @@ use std::path::Path;
 use std::process::{ExitStatus, Output, Stdio};
 use std::time::Duration;
 
+use thiserror::Error;
 use tokio::process::ChildStdout;
 
 use crate::config::{Config, RepoConfig};
@@ -214,10 +215,13 @@ impl Spawn {
 }
 
 /// An error while executing a [`Child`].
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum Error {
+    #[error("failed to launch child: {0}")]
     Launch(io::Error),
+    #[error("child exited with code {0}")]
     ExitCode(i32),
+    #[error("child terminated abnormally")]
     Killed,
 }
 
@@ -235,17 +239,5 @@ impl Error {
             code = code,
             "Something went wrong ({self}); you might need do something about that."
         );
-    }
-}
-
-impl std::error::Error for Error {}
-
-impl Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Error::Launch(err) => write!(f, "failed to launch child: {err}"),
-            Error::ExitCode(code) => write!(f, "child exited with code {code}"),
-            Error::Killed => write!(f, "child terminated abnormally"),
-        }
     }
 }
