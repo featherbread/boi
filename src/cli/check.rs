@@ -31,7 +31,12 @@ pub async fn main(args: Args) -> child::Result<()> {
         .into_iter()
         .map(|(name, repo)| {
             let reporter = reporter.add_repo(name.to_owned(), Widget::blank());
-            tokio::spawn(run(repo.clone(), reporter, args.repository_only))
+            tokio::spawn(run(
+                name.to_owned(),
+                repo.clone(),
+                reporter,
+                args.repository_only,
+            ))
         })
         .collect();
 
@@ -58,6 +63,7 @@ pub async fn main(args: Args) -> child::Result<()> {
 }
 
 async fn run(
+    name: String,
     repo: RepoConfig,
     mut reporter: RepoReporter,
     repository_only: bool,
@@ -72,6 +78,7 @@ async fn run(
         .spawn_with_output()
         .await?;
 
+    let mut log_lines = Vec::new();
     let mut event_stream = borg::stream(output);
     while let Some(event) = event_stream.next().await {
         match event {
@@ -82,7 +89,7 @@ async fn run(
                 reporter.post_message("Waiting for Borg");
             }
             Ok(Event::LogMessage(msg)) if msg.level >= LogLevel::Warning => {
-                reporter.suspend(|| speak!("⚑", "{}", msg.message));
+                log_lines.push(msg.message);
             }
             event => match reporter.post_unhandled_event(event) {
                 ControlFlow::Continue(()) => {}
@@ -90,6 +97,12 @@ async fn run(
             },
         }
     }
+
+    reporter.suspend(|| {
+        for line in log_lines {
+            speak!("⚑", "[{name}] {line}");
+        }
+    });
 
     let child_result = reporter
         .wait_for_spawn(&mut spawn, "Waiting for Borg to exit…")
