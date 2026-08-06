@@ -98,7 +98,7 @@ async fn run(
     match &child_result {
         Ok(()) => reporter.succeed("Repository is valid"),
         Err(err) => reporter.fail_from_child(err),
-    };
+    }
 
     child_result
 }

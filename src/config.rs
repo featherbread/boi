@@ -120,12 +120,12 @@ impl Config {
         'me: 'names,
         S: AsRef<str>,
     {
-        let want_set: HashSet<&str> = HashSet::from_iter(names.iter().map(AsRef::as_ref));
+        let want_set: HashSet<&str> = names.iter().map(AsRef::as_ref).collect();
         if want_set.len() != names.len() {
             die!("Requested a repo more than once; remove your duplicates and try again.");
         }
 
-        let have_set: HashSet<&str> = HashSet::from_iter(self.repos.keys().map(AsRef::as_ref));
+        let have_set: HashSet<&str> = self.repos.keys().map(AsRef::as_ref).collect();
         let missing_set = &want_set - &have_set;
         if !missing_set.is_empty() {
             die!("Requested unknown repos; what do I operate on?",);

@@ -87,7 +87,10 @@ pub async fn main(args: Args) -> child::Result<()> {
         DriverKind::None => Box::new(none::prepare().await),
     };
 
-    let all_stats: Vec<SharedArchiveStats> = repos.iter().map(|_| Default::default()).collect();
+    let all_stats: Vec<_> = repos
+        .iter()
+        .map(|_| SharedArchiveStats::default())
+        .collect();
 
     let mut reporter = Reporter::new(Widget::new(ArchiveStatsSummaryRunning(all_stats.clone())));
     let tasks: Vec<_> = iter::zip(repos, &all_stats)
@@ -212,7 +215,7 @@ impl Task {
                     .unwrap_or_default(),
             )),
             Err(err) => reporter.fail_from_child(err),
-        };
+        }
 
         child_result
     }
@@ -239,7 +242,7 @@ impl Display for ArchiveStatsSummaryRunning {
 
 pub struct ArchiveStatsSummary<'s>(&'s [SharedArchiveStats]);
 
-impl<'s> Display for ArchiveStatsSummary<'s> {
+impl Display for ArchiveStatsSummary<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let (max_nfiles, max_size) = self
             .0

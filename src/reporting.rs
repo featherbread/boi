@@ -302,7 +302,7 @@ impl RepoReporter {
         self.bar.set_style(match &self.report {
             Report::Message(_) => self.create_message_style(),
             Report::Progress(_) => self.create_progress_style(),
-        })
+        });
     }
 
     fn create_message_style(&self) -> ProgressStyle {
