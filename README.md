@@ -19,7 +19,6 @@ boi is a small, opinionated wrapper for [Borg](https://www.borgbackup.org/) that
   * Prunes archives on request using simple retention policies
 
 It's something I've designed entirely for myself and my usage patterns, as an
-evolution of the Bash scripts I somehow decided were preferable to any more
-widely accepted, featureful, and battle-tested Borg automation solution.
-It's made public largely in the hope that the code might be useful as a
-reference, probably for my future self more than anyone else.
+evolution of Bash scripts that I preferred (for whatever reason) to any more
+widely known Borg automation solution. It's made public in the hope that the
+code might be useful as a reference for my future self.
