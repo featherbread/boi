@@ -76,7 +76,7 @@ pub async fn main(args: Args) -> child::Result<()> {
         config.select_repos_or_die(&args.repositories).collect()
     };
 
-    let Ok(ts) = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) else {
+    let Ok(unixtime) = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) else {
         die!("System time is before the UNIX epoch; what are you doing?!?");
     };
 
@@ -95,7 +95,7 @@ pub async fn main(args: Args) -> child::Result<()> {
     let mut reporter = Reporter::new(Widget::new(ArchiveStatsSummaryRunning(all_stats.clone())));
     let tasks: Vec<_> = iter::zip(repos, &all_stats)
         .map(|((name, repo), stats)| Task {
-            ts,
+            unixtime,
             path: backup_root.path().to_owned(),
             repo: repo.clone(),
             stats: Arc::clone(stats),
@@ -136,7 +136,7 @@ pub async fn main(args: Args) -> child::Result<()> {
 }
 
 struct Task {
-    ts: Duration,
+    unixtime: Duration,
     path: PathBuf,
     repo: RepoConfig,
     stats: SharedArchiveStats,
@@ -148,7 +148,7 @@ impl Task {
         let backup_spec = format!(
             "{url}::{sec}",
             url = self.repo.repo_url(),
-            sec = self.ts.as_secs()
+            sec = self.unixtime.as_secs()
         );
         let cmdline = [
             "borg",
