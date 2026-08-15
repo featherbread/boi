@@ -40,7 +40,7 @@ pub async fn main(args: Args) -> child::Result<()> {
         })
         .collect();
 
-    let reporter = reporter.lock_repos();
+    let reporter = reporter.freeze_repos();
 
     let mut child_err = None;
     for spawn in spawns {

@@ -32,12 +32,12 @@ struct ReporterState {
 }
 
 pub enum ReposAddable {}
-pub enum ReposLocked {}
+pub enum ReposFrozen {}
 
 mod reporterkind {
     pub trait Kind {}
     impl Kind for super::ReposAddable {}
-    impl Kind for super::ReposLocked {}
+    impl Kind for super::ReposFrozen {}
 }
 
 impl Reporter<ReposAddable> {
@@ -73,7 +73,7 @@ impl Reporter<ReposAddable> {
 
     /// Enables features that reduce output flickering but require the number of displayed progress
     /// indicators to remain constant.
-    pub fn lock_repos(self) -> Reporter<ReposLocked> {
+    pub fn freeze_repos(self) -> Reporter<ReposFrozen> {
         self.0.mp.set_move_cursor(true);
         Reporter(self.0, PhantomData)
     }

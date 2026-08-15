@@ -29,7 +29,7 @@ pub struct Args {
 }
 
 pub async fn prepare(args: Args) -> Snapshot {
-    let reporter = Reporter::new(Widget::text("Creating APFS snapshot…")).lock_repos();
+    let reporter = Reporter::new(Widget::text("Creating APFS snapshot…")).freeze_repos();
     match Snapshot::create_and_mount(args).await {
         Ok(snapshot) => {
             let date = &snapshot.date;
@@ -43,7 +43,7 @@ pub async fn prepare(args: Args) -> Snapshot {
 }
 
 async fn unprepare(snapshot: Snapshot) {
-    let reporter = Reporter::new(Widget::text("Unmounting APFS snapshot…")).lock_repos();
+    let reporter = Reporter::new(Widget::text("Unmounting APFS snapshot…")).freeze_repos();
     if let Err(err) = snapshot.unmount().await {
         reporter.die(format_args!(
             "Failed to unmount APFS snapshot ({err}); you should look at that."

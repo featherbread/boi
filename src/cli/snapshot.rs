@@ -106,7 +106,7 @@ pub async fn main(args: Args) -> child::Result<()> {
         })
         .collect();
 
-    let reporter = reporter.lock_repos();
+    let reporter = reporter.freeze_repos();
     let spawns: Vec<_> = tasks
         .into_iter()
         .map(|task| tokio::spawn(task.run()))
