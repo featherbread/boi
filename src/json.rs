@@ -18,6 +18,12 @@ use tokio_util::io::SyncIoBridge;
 ///
 /// 2. We can't iterate over lines, since not all JSON streams are guaranteed to use the JSON Lines
 ///    format. In particular, Borg is known to pretty-print non-log JSON output.
+///
+/// Strictly speaking, 2. is an artifact of boi's own choice to combine standard output and error
+/// into a single stream; Borg itself uses JSON lines on stderr and pretty-prints by default only
+/// on stdout. Newer Borg versions also have options to disable this pretty-printing. However,
+/// making boi more liberal makes it more compatible with old Borg versions or alternate harnesses
+/// that emulate Borg's combined output.
 pub struct JsonStream<T>(mpsc::UnboundedReceiver<serde_json::Result<T>>)
 where
     T: DeserializeOwned + Send + 'static;
