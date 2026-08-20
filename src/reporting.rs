@@ -1,3 +1,28 @@
+//! Terminal progress reporting structured for typical Borg tasks.
+//!
+//! A user of this module will typically:
+//!
+//! 1. [Create a `Reporter`](Reporter::new) with a header that summarizes the task, and if
+//!    appropriate its progress, which immediately begins rendering to the terminal.
+//!
+//! 2. [Create a `RepoReporter`](Reporter::add_repo) for each Borg repository (if any) involved in
+//!    the task.
+//!
+//! 3. [Freeze the `RepoReporter` set](Reporter::freeze_repos) to permit more efficient terminal
+//!    progress updates based on the now-constant number of progress rows. (This can and should be
+//!    done even in the absence of repos.)
+//!
+//! 4. Mark each [`RepoReporter`] as [succeeding](RepoReporter::succeed) or
+//!    [failing](RepoReporter::fail).
+//!
+//! 5. Finally, mark the [`Reporter`] as [succeeding](Reporter::succeed) or
+//!    [failing](Reporter::fail). In the latter case, boi [may also die](Reporter::die).
+//!
+//! `Reporter` statically enforces some of these expectations with Rust's type system, but can't
+//! statically enforce all of them (especially while making `RepoReporter` `'static`). Dropping a
+//! `Reporter` or finishing it before its corresponding `RepoReporter`s may yield partial or
+//! artifact-laden outputs.
+
 use std::borrow::Cow;
 use std::fmt::{self, Display};
 use std::io::Write;
@@ -19,6 +44,9 @@ use crate::child;
 
 const TICK_INTERVAL: Duration = Duration::from_millis(100);
 
+/// A progress reporter covering a single logical task.
+///
+/// See [the module documentation](self).
 #[repr(transparent)]
 pub struct Reporter<K: reporterkind::Kind>(ReporterState, PhantomData<K>);
 
@@ -175,6 +203,9 @@ impl HeadReporter {
 
 const DEFAULT_REPO_SIGIL: &str = "─";
 
+/// A progress reporter covering a single Borg repository.
+///
+/// See [the module documentation](self).
 pub struct RepoReporter {
     bar: ProgressBar,
     name: String,
@@ -341,18 +372,27 @@ impl RepoReporter {
     }
 }
 
+/// A static or dynamic header for a top-level or repo reporter.
+///
+/// Whether static or dynamic, widgets should render on one line for a consistent user experience.
 #[derive(Clone)]
 pub struct Widget(Option<Arc<dyn Display + Send + Sync + 'static>>);
 
 impl Widget {
+    /// Creates a dynamic widget that updates live by [displaying](Display) `inner`.
     pub fn new(inner: impl Display + Send + Sync + 'static) -> Self {
         Self(Some(Arc::new(inner)))
     }
 
+    /// Creates a static widget that shows a line of text.
     pub fn text(msg: impl Into<Cow<'static, str>>) -> Self {
         Self::new(msg.into())
     }
 
+    /// Creates an empty widget.
+    ///
+    /// This is semantically equivalent to but marginally more efficient than [`Widget::text`] with
+    /// an empty string.
     pub fn blank() -> Self {
         Self(None)
     }
