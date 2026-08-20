@@ -1,3 +1,8 @@
+//! Interpretation of JSON output from the `borg` CLI.
+//!
+//! The semantics of any type not explicitly documented here should be clear from
+//! <https://borgbackup.readthedocs.io/en/stable/internals/frontends.html>.
+
 use std::fmt::{self, Display};
 
 use futures::{Stream, StreamExt, stream};
@@ -9,6 +14,11 @@ use tokio::io::AsyncRead;
 
 use crate::json::JsonStream;
 
+/// Returns a stream of [`Event`] records from the Borg CLI.
+///
+/// While `borg` typically emits `--json` on stdout and `--log-json` on stderr, `stream` expects
+/// the _combined_ standard streams and distinguishes the JSON records solely by their content to
+/// simplify usage.
 pub fn stream<R>(reader: R) -> impl Stream<Item = serde_json::Result<Event>>
 where
     R: AsyncRead + Unpin + Send + 'static,
@@ -17,6 +27,10 @@ where
     stream::poll_fn(move |cx| raw_stream.poll_next_unpin(cx).map_ok(Event::from))
 }
 
+/// The first-level representation of Borg's combined JSON output.
+///
+/// Most JSON records in a `borg` run will be `--log-json `lines distinguished by their `type`
+/// field, and represented by [`TypedRaw`].
 #[derive(Deserialize)]
 #[serde(untagged)]
 enum Raw {
@@ -30,12 +44,16 @@ struct CreateStatsRaw {
     archive: ArchiveComplete,
 }
 
+/// The second-level representation of Borg's `--log-json` output.
 #[derive(Deserialize)]
 struct TypedRaw {
     #[serde(rename = "type")]
     msg_type: String,
     #[serde(flatten)]
     rest: JsonMap<String, JsonValue>,
+    // The slurping of all the fields into a map, rather than using an internally tagged enum
+    // representation, is mainly for the benefit of `progress_into`. I'm not sure if enum tagging
+    // works with booleans; perhaps that's worth a try instead?
 }
 
 impl TypedRaw {
@@ -69,6 +87,7 @@ impl TypedRaw {
     }
 }
 
+/// One record in a [`stream()`] of Borg's JSON output.
 pub enum Event {
     Blank,
     LogMessage(LogMessage),
@@ -123,6 +142,10 @@ pub struct LogMessage {
     pub message: String,
 }
 
+/// Container for record types that include a `finished` field.
+///
+/// In Borg versions as of writing, records that set `finished` don't include the other meaningful
+/// progress fields.
 pub enum Progress<T> {
     Finished,
     Running(T),
