@@ -1,3 +1,5 @@
+//! Opinionated spawning of child processes.
+
 use std::ffi::OsStr;
 use std::fmt::{self, Display};
 use std::io;

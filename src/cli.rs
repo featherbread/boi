@@ -1,3 +1,5 @@
+//! Implementations of boi's CLI subcommands.
+
 pub mod borg;
 pub mod check;
 pub mod completion;

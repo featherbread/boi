@@ -1,3 +1,5 @@
+//! Parse live streams of arbitrary JSON output.
+
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::thread;

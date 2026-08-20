@@ -1,3 +1,5 @@
+//! Access to boi's global configuration.
+
 use std::collections::HashSet;
 use std::env;
 use std::ffi::OsString;
