@@ -80,6 +80,21 @@ impl super::BackupRoot for Snapshot {
 
 impl Snapshot {
     async fn create_and_mount(args: Args) -> Result<Self> {
+        // Apple is _very_ picky about handing out access to low-level APFS snapshot APIs; you must
+        // notarize your binary with a special entitlement, disable SIP, or install a kext that
+        // selectively permits entitlements on non-notarized binaries. All out of the question for
+        // a side project.
+        //
+        // However, the `tmutil` CLI for Time Machine provides a safe, opinionated interface that
+        // anyone can use to create and delete snapshots with a 24-hour TTL. Combined with some
+        // other macOS-standard CLI tools, we have just enough to stabilize Borg's view of a home
+        // directory without Apple's blessing.
+        //
+        // The trickiest thing is time zone handling. The correct `snapshot_date` is always based
+        // on the machine's current local time, but `tmutil` may _render_ it incorrectly if the
+        // environment has an inconsistent `$TZ` (as is normally done for prune safety). Hence the
+        // `null_timezone` option for child processes, which should apply to `tmutil` only.
+
         let home_abs = env::home_dir().ok_or(Error::HomeUnknown)?;
         let home_sub = home_abs.strip_prefix("/").or(Err(Error::HomeIsRelative))?;
         let mount_src = find_mount_base(&home_abs).map_err(Error::HomeMountBaseUnknown)?;
@@ -96,7 +111,6 @@ impl Snapshot {
             pkg = env!("CARGO_PKG_NAME"),
             pid = std::process::id()
         ));
-
         fs::create_dir(&mount_target)
             .await
             .map_err(Error::MountTargetCreateFailed)?;
@@ -143,6 +157,11 @@ impl Snapshot {
     }
 
     async fn delete(&self) -> Result<()> {
+        // Time Machine will delete this after 24 hours even if we do nothing, but freeing the disk
+        // space sooner is user-friendlier.
+        //
+        // Deleting the last snapshot on an APFS volume can take a minute or two, but would be a
+        // silly reason to block boi from exiting. Hence `spawn_and_background_after`.
         Child::from_cmdline(&["tmutil", "deletelocalsnapshots", &self.date])
             .null_input()
             .null_output()
