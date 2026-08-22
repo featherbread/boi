@@ -62,14 +62,14 @@ impl Config {
     }
 
     async fn load_inner() -> Result<Config, Error> {
-        let Some(path) = Self::config_path().await else {
-            die!("Can't find your boi.toml; what do I do?");
-        };
+        let path = Self::config_path().await.ok_or(Error::NotFound)?;
         let content = tokio::fs::read_to_string(path).await?;
         let config: Config = toml::from_str(&content)?;
-        (!config.repos.is_empty())
-            .then_some(config)
-            .ok_or(Error::NoRepos)
+        if !config.repos.is_empty() {
+            Ok(config)
+        } else {
+            Err(Error::NoRepos)
+        }
     }
 
     async fn config_path() -> Option<PathBuf> {
@@ -192,6 +192,9 @@ impl RepoConfig {
 
 #[derive(Error, Debug)]
 pub enum Error {
+    #[error("config file not found")]
+    NotFound,
+
     /// The config file is missing or can't be opened.
     #[error(transparent)]
     Open(#[from] io::Error),
@@ -214,6 +217,7 @@ pub enum Error {
 impl Error {
     pub fn die(&self) -> ! {
         match self {
+            Self::NotFound => die!("Can't find your boi.toml; what do I do?"),
             Self::Open(err) => die!("Can't load your config ({err}); I can't do anything!"),
             Self::Parse(err) => die!("Can't load your config; I can't do anything!\n\n{err}"),
             Self::NoRepos => die!("Can't find any repos in your config; what do I operate on?"),
