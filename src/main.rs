@@ -1,6 +1,5 @@
 #![warn(
     clippy::elidable_lifetime_names,
-    clippy::from_iter_instead_of_collect,
     clippy::semicolon_if_nothing_returned,
     clippy::undocumented_unsafe_blocks,
     clippy::unnecessary_semicolon
